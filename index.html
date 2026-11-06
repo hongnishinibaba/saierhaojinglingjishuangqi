@@ -1,0 +1,3143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>精灵费用计算器 · 星空</title>
+
+<!-- SheetJS：主 CDN 失败自动切换备用 CDN -->
+<script>
+function loadFallbackXLSX(){
+  var s = document.createElement('script');
+  s.src = 'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js';
+  document.head.appendChild(s);
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" onerror="loadFallbackXLSX()"></script>
+
+<!-- JSZip：主 CDN 失败自动切换备用 CDN -->
+<script>
+function loadFallbackJSZip(){
+  var s = document.createElement('script');
+  s.src = 'https://unpkg.com/jszip@3.10.1/dist/jszip.min.js';
+  document.head.appendChild(s);
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" onerror="loadFallbackJSZip()"></script>
+
+<style>
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0;
+  min-height:100vh;
+  padding-bottom:132px;
+  color:#dbe7ff;
+  font-family:"Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif;
+  background:
+    radial-gradient(1200px 700px at 15% 0%, rgba(38,80,180,.35), transparent 60%),
+    radial-gradient(900px 600px at 85% 18%, rgba(120,50,190,.28), transparent 60%),
+    radial-gradient(900px 700px at 60% 100%, rgba(20,120,160,.22), transparent 60%),
+    #03050e;
+  background-attachment:fixed;
+  overflow-x:hidden;
+}
+#stars{position:fixed;inset:0;z-index:0;pointer-events:none;display:block;}
+
+/* ---------- 头部 ---------- */
+header{position:relative;z-index:2;text-align:center;padding:26px 16px 6px;}
+h1{
+  margin:0;
+  font-size:clamp(20px,4vw,34px);
+  letter-spacing:6px;
+  font-weight:700;
+  background:linear-gradient(90deg,#7fd8ff,#a58bff,#7fffe0,#7fd8ff);
+  background-size:300% 100%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:shine 9s linear infinite;
+  filter:drop-shadow(0 0 18px rgba(90,170,255,.55));
+}
+@keyframes shine{to{background-position:300% 0;}}
+header p{margin:9px 0 0;color:#8fb3e6;font-size:13.5px;letter-spacing:2px;}
+
+/* ---------- 布局 ---------- */
+main{
+  position:relative;z-index:2;
+  max-width:1440px;margin:0 auto;padding:16px 20px 0;
+  display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:18px;align-items:start;
+}
+@media (max-width:960px){
+  main{grid-template-columns:1fr;}
+}
+
+.panel{
+  background:rgba(12,20,45,.55);
+  border:1px solid rgba(110,170,255,.18);
+  border-radius:18px;
+  padding:16px;
+  backdrop-filter:blur(9px);
+  -webkit-backdrop-filter:blur(9px);
+  box-shadow:0 0 34px rgba(40,90,200,.13), inset 0 0 60px rgba(40,90,200,.06);
+}
+.panel-head{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:13px;flex-wrap:wrap;
+}
+.panel-head h2{
+  margin:0;font-size:17px;letter-spacing:3px;color:#9fd4ff;font-weight:600;
+  text-shadow:0 0 12px rgba(80,160,255,.5);
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.panel-head h2::before{content:"✦ ";color:#5ff0d0;}
+
+/* ★ 玩家名称：面板标题可点击编辑 */
+.panel-head h2.editable{cursor:pointer;transition:filter .18s;}
+.panel-head h2.editable:hover{filter:brightness(1.35);}
+.panel-head h2.editable::after{
+  content:"✎";
+  margin-left:8px;font-size:11px;opacity:.5;
+  vertical-align:2px;
+}
+.name-input{
+  flex:1 1 auto;min-width:0;max-width:190px;
+  padding:5px 10px;border-radius:9px;
+  background:rgba(5,14,32,.96);
+  border:1px solid #5ff0d0;
+  color:#5ff0d0;font-size:16px;font-weight:700;letter-spacing:2px;
+  font-family:inherit;outline:none;
+  box-shadow:0 0 16px rgba(95,240,208,.5);
+  -moz-appearance:textfield;
+}
+#p2Panel .name-input{
+  border-color:#ff9fe6;color:#ff9fe6;
+  box-shadow:0 0 16px rgba(255,159,230,.5);
+}
+
+.head-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.edit-hint{font-size:11.5px;color:#6f8cb5;letter-spacing:.5px;white-space:nowrap;}
+
+#search{
+  width:190px;padding:8px 12px;border-radius:10px;
+  background:rgba(10,20,45,.75);border:1px solid rgba(110,170,255,.25);
+  color:#cfe6ff;outline:none;font-size:13px;font-family:inherit;transition:.2s;
+}
+#search:focus{border-color:#5ff0d0;box-shadow:0 0 14px rgba(95,240,208,.35);}
+#search::placeholder{color:#5c7396;}
+
+/* ---------- 精灵池（按费用分组） ---------- */
+.pool-scroll{
+  max-height:calc(100vh - 300px);
+  min-height:240px;
+  overflow-y:auto;
+  padding:2px 8px 2px 2px;
+}
+.pool-scroll::-webkit-scrollbar{width:8px;}
+.pool-scroll::-webkit-scrollbar-thumb{background:rgba(90,150,255,.3);border-radius:9px;}
+.pool-scroll::-webkit-scrollbar-track{background:rgba(10,20,45,.4);border-radius:9px;}
+
+.cost-group{margin-bottom:16px;}
+.cost-group:last-child{margin-bottom:4px;}
+
+.group-head{
+  display:flex;align-items:center;gap:10px;
+  padding:0 2px 7px;margin-bottom:10px;
+  border-bottom:1px solid rgba(110,170,255,.13);
+}
+.group-badge{
+  min-width:46px;height:22px;padding:0 10px;border-radius:8px;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:12.5px;font-weight:700;letter-spacing:1px;
+}
+.group-count{font-size:12px;color:#6f8cb5;letter-spacing:1px;}
+.group-count.repeatable{color:#5ff0d0;}
+
+.group-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(118px,1fr));
+  gap:11px;
+}
+
+/* ---------- 精灵卡片 ---------- */
+.card{
+  position:relative;
+  display:flex;flex-direction:column;align-items:center;gap:5px;
+  padding:9px 5px 8px;
+  border-radius:13px;
+  background:linear-gradient(160deg, rgba(30,50,100,.55), rgba(10,18,40,.7));
+  border:1px solid rgba(110,170,255,.18);
+  cursor:pointer;
+  user-select:none;
+  transition:transform .16s ease, box-shadow .2s, border-color .2s, background .2s;
+}
+.card:hover{
+  transform:translateY(-4px);
+  border-color:rgba(120,220,255,.6);
+  box-shadow:0 10px 26px rgba(60,160,255,.25);
+}
+.card.selected{
+  border-color:#5ff0d0;
+  background:linear-gradient(160deg, rgba(18,72,84,.75), rgba(8,28,42,.8));
+  box-shadow:0 0 0 2px rgba(95,240,208,.45), 0 0 24px rgba(95,240,208,.3);
+}
+.card.selected::before{
+  content:"✓";
+  position:absolute;left:6px;top:5px;z-index:3;
+  width:20px;height:20px;line-height:20px;text-align:center;
+  font-size:13px;font-weight:700;color:#04222b;
+  background:#5ff0d0;border-radius:50%;
+  box-shadow:0 0 12px rgba(95,240,208,.8);
+}
+.card.blocked{opacity:.32;filter:grayscale(.5);}
+
+/* ★ 双人模式：卡片选中态（P1 青 / P2 粉） */
+.card.sel-p1{
+  border-color:#5ff0d0;
+  background:linear-gradient(160deg, rgba(18,72,84,.7), rgba(8,28,42,.8));
+  box-shadow:0 0 0 2px rgba(95,240,208,.4), 0 0 22px rgba(95,240,208,.25);
+}
+.card.sel-p2{
+  border-color:#ff9fe6;
+  background:linear-gradient(160deg, rgba(84,18,72,.7), rgba(42,8,34,.8));
+  box-shadow:0 0 0 2px rgba(255,159,230,.4), 0 0 22px rgba(255,159,230,.25);
+}
+.card.sel-p1.sel-p2{
+  border-color:#c8a2ff;
+  box-shadow:0 0 0 2px rgba(200,162,255,.5), 0 0 24px rgba(200,162,255,.3);
+}
+.card .tag-p1,.card .tag-p2{
+  position:absolute;left:6px;z-index:4;
+  padding:1px 7px;border-radius:7px;
+  font-size:10.5px;font-weight:700;letter-spacing:.5px;
+}
+.card .tag-p1{top:6px;background:#5ff0d0;color:#04222b;box-shadow:0 0 10px rgba(95,240,208,.6);}
+.card .tag-p2{top:28px;background:#ff9fe6;color:#2b0422;box-shadow:0 0 10px rgba(255,159,230,.6);}
+
+/* 可重复卡片的“可重复”角标 */
+.card .repeat-tag{
+  position:absolute;left:6px;bottom:6px;z-index:3;
+  padding:1px 7px;border-radius:7px;
+  font-size:10.5px;font-weight:700;letter-spacing:.5px;
+  color:#04222b;background:#7fffe0;
+  box-shadow:0 0 10px rgba(127,255,224,.65);
+}
+
+.card .name{
+  font-size:12px;line-height:1.25;text-align:center;color:#cfe3ff;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.card .cost{
+  position:absolute;top:6px;right:6px;z-index:3;
+  min-width:24px;height:22px;padding:0 6px;
+  border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:700;
+  backdrop-filter:blur(4px);
+  cursor:pointer;
+  transition:transform .14s ease, filter .14s ease;
+}
+.card .cost:hover{
+  transform:scale(1.14);
+  filter:brightness(1.45);
+}
+
+/* ★ 就地编辑费用的小输入框 */
+.card .cost-input{
+  position:absolute;top:5px;right:5px;z-index:7;
+  width:58px;height:26px;padding:0 6px;
+  border-radius:8px;
+  background:rgba(5,14,32,.97);
+  border:1px solid #5ff0d0;
+  color:#5ff0d0;font-size:13px;font-weight:700;text-align:center;
+  outline:none;font-family:inherit;
+  box-shadow:0 0 16px rgba(95,240,208,.55);
+  -moz-appearance:textfield;
+}
+.card .cost-input::-webkit-outer-spin-button,
+.card .cost-input::-webkit-inner-spin-button{
+  -webkit-appearance:none;margin:0;
+}
+main.duo .card .cost-input{top:4px;right:4px;width:52px;height:22px;font-size:11.5px;}
+
+/* 精灵池锁定态（禁止阶段 / 结束后） */
+.pool-locked .card{opacity:.42;filter:grayscale(.55);cursor:not-allowed;}
+.pool-locked .card.sel-p1,.pool-locked .card.sel-p2{opacity:1;filter:none;}
+
+/* ---------- 图标（池内 100×100） ---------- */
+.icon-wrap{
+  position:relative;
+  width:100px;height:100px;
+  flex:0 0 auto;
+  border-radius:12px;
+  overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 50% 38%, rgba(80,140,255,.2), rgba(8,16,38,.7));
+  border:1px solid rgba(110,170,255,.15);
+}
+.icon-wrap::after{
+  content:attr(data-initial);
+  position:absolute;left:50%;top:50%;
+  transform:translate(-50%,-50%);
+  font-size:34px;font-weight:700;
+  color:rgba(140,190,255,.35);
+  pointer-events:none;
+}
+.icon-wrap img{
+  position:relative;z-index:1;
+  width:100px;height:100px;
+  object-fit:contain;
+  display:block;
+}
+
+/* ---------- 出战阵容：2 列 ---------- */
+.slots{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  grid-template-rows:repeat(3,auto);
+  gap:10px;
+}
+.slot{
+  position:relative;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:5px;padding:9px 6px 8px;border-radius:12px;
+  min-height:104px;
+  transition:.2s;
+}
+.slot.empty{
+  border:1px dashed rgba(110,170,255,.22);
+  background:rgba(10,18,40,.35);
+  color:#3f5a86;font-size:24px;
+}
+.slot.filled{
+  cursor:pointer;
+  background:linear-gradient(160deg, rgba(22,70,84,.6), rgba(8,25,42,.75));
+  border:1px solid rgba(95,240,208,.35);
+  box-shadow:inset 0 0 22px rgba(95,240,208,.12);
+}
+.slot.filled.hoverable:hover{
+  border-color:rgba(255,110,110,.7);
+  box-shadow:inset 0 0 22px rgba(255,80,80,.15), 0 0 18px rgba(255,80,80,.25);
+}
+.slot.filled.hoverable:hover::after{
+  content:"移除";
+  position:absolute;inset:0;z-index:4;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(50,0,0,.6);
+  color:#ffb3b3;font-size:13px;letter-spacing:2px;
+  border-radius:inherit;
+}
+
+.slot .icon-wrap{width:64px;height:64px;border-radius:10px;}
+.slot .icon-wrap img{width:64px;height:64px;}
+.slot .icon-wrap::after{font-size:22px;}
+
+.slot .name{
+  font-size:12px;color:#cfe3ff;max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.slot .cost{
+  position:absolute;top:5px;right:5px;z-index:3;
+  min-width:22px;height:19px;padding:0 6px;border-radius:7px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:11.5px;font-weight:700;
+  backdrop-filter:blur(4px);
+}
+
+/* ★ 双人：被禁止的精灵 + 红色禁止图标 */
+.slot.banned{cursor:not-allowed;}
+.slot.banned .icon-wrap img,
+.slot.banned .name{opacity:.35;filter:grayscale(1);}
+.slot.banned .cost{opacity:.4;filter:grayscale(1);}
+.ban-mark{
+  position:absolute;inset:0;z-index:6;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(70,0,0,.45);
+  border-radius:inherit;
+  pointer-events:none;
+}
+.ban-mark::before{
+  content:"";
+  width:36px;height:36px;border-radius:50%;
+  border:4px solid #ff3b3b;
+  box-shadow:0 0 18px rgba(255,59,59,.9), inset 0 0 14px rgba(255,59,59,.45);
+}
+.ban-mark::after{
+  content:"";
+  position:absolute;left:50%;top:50%;
+  width:46px;height:4px;border-radius:2px;
+  background:#ff3b3b;
+  transform:translate(-50%,-50%) rotate(-45deg);
+  box-shadow:0 0 14px rgba(255,59,59,.95);
+}
+
+/* ---------- 统计 ---------- */
+.total-row{
+  display:flex;justify-content:space-between;align-items:baseline;
+  margin-top:14px;font-size:14px;color:#9fd4ff;letter-spacing:1px;
+}
+.total-row b{font-size:26px;color:#5ff0d0;text-shadow:0 0 16px rgba(95,240,208,.6);transition:.2s;}
+.total-row b.warn{color:#ffd23f;text-shadow:0 0 16px rgba(255,210,63,.6);}
+.total-row b.over{color:#ff6b6b;text-shadow:0 0 16px rgba(255,80,80,.6);}
+
+/* 费用上限设置行 */
+.limit-row{
+  display:flex;justify-content:space-between;align-items:center;
+  margin-top:10px;font-size:13.5px;color:#9fd4ff;letter-spacing:1px;
+}
+.limit-row input{
+  width:94px;padding:6px 10px;border-radius:9px;
+  background:rgba(10,20,45,.8);
+  border:1px solid rgba(110,170,255,.3);
+  color:#5ff0d0;font-size:14px;font-weight:700;text-align:center;
+  outline:none;font-family:inherit;transition:.2s;
+  -moz-appearance:textfield;
+}
+.limit-row input::-webkit-outer-spin-button,
+.limit-row input::-webkit-inner-spin-button{
+  -webkit-appearance:none;margin:0;
+}
+.limit-row input:focus{
+  border-color:#5ff0d0;
+  box-shadow:0 0 14px rgba(95,240,208,.4);
+  background:rgba(12,30,55,.9);
+}
+
+.bar{
+  height:9px;border-radius:99px;margin-top:9px;
+  background:rgba(8,20,45,.9);
+  border:1px solid rgba(110,170,255,.15);
+  overflow:hidden;
+}
+#bar{
+  height:100%;width:0;border-radius:99px;
+  background:linear-gradient(90deg,#3fe0ff,#5ff0d0);
+  transition:width .28s ease, background .28s;
+  box-shadow:0 0 14px rgba(95,240,208,.6);
+}
+#bar.warn{background:linear-gradient(90deg,#ffd23f,#ff8a3f);box-shadow:0 0 14px rgba(255,160,63,.6);}
+#bar.over{background:linear-gradient(90deg,#ff6b6b,#ff2d2d);box-shadow:0 0 14px rgba(255,60,60,.6);}
+
+.actions{margin-top:14px;display:flex;gap:10px;}
+button{
+  flex:1;padding:10px;border-radius:10px;cursor:pointer;
+  font-size:13px;letter-spacing:2px;font-family:inherit;
+  background:rgba(20,45,90,.6);
+  border:1px solid rgba(110,170,255,.3);
+  color:#bfe0ff;transition:.2s;
+}
+button:hover{
+  background:rgba(35,80,150,.75);
+  border-color:#5ff0d0;color:#fff;
+  box-shadow:0 0 18px rgba(95,240,208,.3);
+}
+
+button.primary{
+  background:linear-gradient(135deg, rgba(26,86,150,.85), rgba(22,120,138,.8));
+  border-color:rgba(95,240,208,.5);
+  color:#dcfffa;
+  text-shadow:0 0 12px rgba(95,240,208,.6);
+}
+button.primary:hover{
+  background:linear-gradient(135deg, rgba(40,130,200,.95), rgba(32,175,180,.9));
+  border-color:#7fffe0;
+  box-shadow:0 0 22px rgba(95,240,208,.45);
+}
+button.primary:active{transform:scale(.98);}
+
+/* ---------- 状态提示 ---------- */
+.status{
+  margin-top:12px;font-size:13px;color:#7f9cc9;letter-spacing:1px;line-height:1.7;
+}
+.status.ok{color:#5ff0d0;}
+.status.err{color:#ff9a9a;}
+
+.empty{text-align:center;color:#5c7396;padding:40px 0;font-size:14px;letter-spacing:2px;}
+
+/* ---------- 固定底栏 ---------- */
+footer{
+  position:fixed;left:0;right:0;bottom:0;z-index:9;
+  padding:12px 16px 14px;
+  background:linear-gradient(to top, rgba(3,6,18,.98), rgba(3,6,18,.82) 62%, rgba(3,6,18,0));
+  pointer-events:none;
+}
+.foot-inner{
+  display:flex;align-items:center;justify-content:center;
+  gap:12px;flex-wrap:wrap;
+}
+footer .line{
+  display:inline-block;
+  padding:8px 22px;
+  border-radius:99px;
+  border:1px solid rgba(110,170,255,.22);
+  background:rgba(10,22,50,.5);
+  backdrop-filter:blur(6px);
+  font-size:clamp(12px,1.6vw,15px);
+  letter-spacing:1.5px;
+  color:#bfe0ff;
+  text-shadow:0 0 12px rgba(80,180,255,.65), 0 0 30px rgba(80,180,255,.35);
+}
+.file-btn{
+  pointer-events:auto;
+  flex:0 0 auto;
+  display:inline-flex;align-items:center;
+  padding:9px 22px;border-radius:99px;cursor:pointer;
+  background:rgba(20,45,90,.75);
+  border:1px solid rgba(110,170,255,.4);
+  color:#bfe0ff;font-size:13.5px;letter-spacing:2px;
+  text-shadow:0 0 10px rgba(80,180,255,.5);
+  transition:.2s;white-space:nowrap;
+  font-family:inherit;
+}
+.file-btn:hover{
+  border-color:#5ff0d0;color:#fff;
+  background:rgba(28,72,120,.85);
+  box-shadow:0 0 20px rgba(95,240,208,.35);
+}
+.file-btn:active{transform:scale(.97);}
+.file-btn[disabled]{opacity:.55;cursor:progress;}
+
+/* ★ 导出按钮：金色强调 */
+.file-btn.export{
+  border-color:rgba(255,210,63,.55);
+  color:#ffe9a8;
+  background:rgba(66,50,10,.75);
+  text-shadow:0 0 10px rgba(255,210,63,.55);
+}
+.file-btn.export:hover{
+  border-color:#ffd23f;color:#fff;
+  background:rgba(96,74,16,.9);
+  box-shadow:0 0 20px rgba(255,210,63,.4);
+}
+
+/* ★ 导出图片/压缩包按钮：青色强调 */
+.file-btn.png{
+  border-color:rgba(95,240,208,.55);
+  color:#b8fff0;
+  background:rgba(10,58,52,.75);
+  text-shadow:0 0 10px rgba(95,240,208,.55);
+}
+.file-btn.png:hover{
+  border-color:#7fffe0;color:#fff;
+  background:rgba(14,86,76,.9);
+  box-shadow:0 0 20px rgba(95,240,208,.4);
+}
+
+/* ★ 导出格式选择下拉 */
+.format-select{
+  pointer-events:auto;
+  flex:0 0 auto;
+  padding:9px 26px 9px 14px;
+  border-radius:99px;cursor:pointer;
+  background-color:rgba(10,58,52,.75);
+  border:1px solid rgba(95,240,208,.55);
+  color:#b8fff0;font-size:13px;letter-spacing:1px;
+  font-family:inherit;
+  text-shadow:0 0 10px rgba(95,240,208,.55);
+  outline:none;
+  -webkit-appearance:none;-moz-appearance:none;appearance:none;
+  background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23b8fff0' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 10px center;
+  transition:.2s;
+  white-space:nowrap;
+}
+.format-select:hover{
+  border-color:#7fffe0;color:#fff;
+  background-color:rgba(14,86,76,.9);
+  box-shadow:0 0 20px rgba(95,240,208,.4);
+}
+.format-select option{
+  background:#0a1330;
+  color:#bfe0ff;
+}
+
+/* ★ 骰子按钮 */
+.dice-btn{
+  pointer-events:auto;
+  display:inline-flex;align-items:center;gap:9px;
+  padding:8px 20px 8px 12px;border-radius:99px;cursor:pointer;
+  background:rgba(58,28,96,.8);
+  border:1px solid rgba(180,130,255,.5);
+  color:#e6d9ff;font-size:13.5px;letter-spacing:2px;
+  text-shadow:0 0 10px rgba(180,130,255,.6);
+  transition:.2s;white-space:nowrap;font-family:inherit;
+  flex:0 0 auto;
+}
+.dice-btn:hover{
+  border-color:#c9a0ff;color:#fff;
+  background:rgba(82,42,138,.9);
+  box-shadow:0 0 22px rgba(180,130,255,.45);
+}
+.dice-btn:active{transform:scale(.97);}
+.dice-btn .dice-face{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:26px;height:26px;border-radius:8px;
+  background:linear-gradient(160deg,#ffffff,#d8d2ff);
+  color:#220b3a;font-weight:800;font-size:15px;
+  box-shadow:0 0 12px rgba(255,255,255,.4);
+  transition:transform .12s;
+}
+.dice-btn.rolling .dice-face{animation:diceSpin .16s linear infinite;}
+@keyframes diceSpin{
+  0%{transform:rotate(0deg) scale(1);}
+  50%{transform:rotate(180deg) scale(1.25);}
+  100%{transform:rotate(360deg) scale(1);}
+}
+
+/* ============ ★ 双人模式布局 ============ */
+#duoBar,#p1Panel,#p2Panel{display:none;}
+
+main.duo{grid-template-columns:320px minmax(0,1fr) 320px;}
+main.duo #duoBar{display:flex;grid-column:1 / -1;grid-row:1;}
+main.duo #p1Panel{display:block;grid-column:1;grid-row:2;}
+main.duo #poolPanel{grid-column:2;grid-row:2;}
+main.duo #p2Panel{display:block;grid-column:3;grid-row:2;}
+main.duo #soloPanel{display:none;}
+main.duo .pool-scroll{max-height:calc(100vh - 372px);}
+
+/* ★★★ 双人模式：精灵池紧凑化（图标变小，一屏容纳更多精灵） ★★★ */
+main.duo .cost-group{margin-bottom:12px;}
+main.duo .cost-group:last-child{margin-bottom:4px;}
+main.duo .group-head{padding:0 2px 5px;margin-bottom:8px;gap:8px;}
+main.duo .group-badge{min-width:40px;height:19px;padding:0 8px;font-size:11.5px;border-radius:7px;}
+main.duo .group-count{font-size:11px;}
+main.duo .group-grid{
+  grid-template-columns:repeat(auto-fill,minmax(78px,1fr));
+  gap:8px;
+}
+main.duo .card{padding:6px 4px 6px;border-radius:10px;gap:4px;}
+main.duo .card:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(60,160,255,.22);}
+main.duo .icon-wrap{width:62px;height:62px;border-radius:9px;}
+main.duo .icon-wrap img{width:62px;height:62px;}
+main.duo .icon-wrap::after{font-size:23px;}
+main.duo .card .name{font-size:10.5px;line-height:1.2;}
+main.duo .card .cost{
+  top:4px;right:4px;min-width:20px;height:18px;padding:0 5px;
+  border-radius:6px;font-size:10.5px;
+}
+main.duo .card.selected::before{
+  left:4px;top:4px;width:15px;height:15px;line-height:15px;font-size:10px;
+}
+main.duo .card .repeat-tag{
+  left:4px;bottom:4px;padding:0 5px;border-radius:6px;font-size:9.5px;
+}
+main.duo .card .tag-p1,main.duo .card .tag-p2{
+  left:4px;padding:0 5px;border-radius:6px;font-size:9.5px;
+}
+main.duo .card .tag-p1{top:4px;}
+main.duo .card .tag-p2{top:21px;}
+
+@media (max-width:1240px){
+  main.duo{grid-template-columns:1fr 1fr;}
+  main.duo #duoBar{grid-column:1 / -1;grid-row:1;}
+  main.duo #poolPanel{grid-column:1 / -1;grid-row:2;}
+  main.duo #p1Panel{grid-column:1;grid-row:3;}
+  main.duo #p2Panel{grid-column:2;grid-row:3;}
+}
+@media (max-width:700px){
+  main.duo{grid-template-columns:1fr;}
+  main.duo #p1Panel{grid-column:1;grid-row:3;}
+  main.duo #p2Panel{grid-column:1;grid-row:4;}
+}
+
+/* 双人控制条 */
+.duo-bar{
+  align-items:center;gap:10px;flex-wrap:wrap;
+  padding:11px 18px;border-radius:16px;
+  background:linear-gradient(90deg, rgba(16,52,84,.6), rgba(56,26,88,.6));
+  border:1px solid rgba(130,180,255,.28);
+  box-shadow:0 0 26px rgba(60,120,220,.18);
+}
+.duo-msg{font-size:13.5px;letter-spacing:1.5px;color:#a9c9ee;}
+.duo-cur{
+  font-size:15px;font-weight:800;letter-spacing:2px;
+  padding:2px 12px;border-radius:9px;
+}
+.duo-cur.p1{color:#04222b;background:#5ff0d0;box-shadow:0 0 16px rgba(95,240,208,.7);}
+.duo-cur.p2{color:#2b0422;background:#ff9fe6;box-shadow:0 0 16px rgba(255,159,230,.7);}
+.duo-info{font-size:12.5px;letter-spacing:1px;color:#7f9cc9;}
+.duo-btn{
+  flex:0 0 auto;
+  padding:8px 18px;border-radius:99px;cursor:pointer;
+  font-family:inherit;font-size:13px;letter-spacing:1.5px;
+  background:rgba(20,45,90,.7);
+  border:1px solid rgba(110,170,255,.4);
+  color:#bfe0ff;transition:.2s;
+}
+.duo-btn:hover{border-color:#5ff0d0;color:#fff;box-shadow:0 0 16px rgba(95,240,208,.3);}
+.duo-btn.p1{border-color:rgba(95,240,208,.6);color:#b8fff0;}
+.duo-btn.p2{border-color:rgba(255,159,230,.6);color:#ffd6f5;}
+
+/* 双人阵容面板 */
+#p1Panel .panel-head h2{color:#5ff0d0;text-shadow:0 0 12px rgba(95,240,208,.5);}
+#p1Panel .panel-head h2::before{color:#5ff0d0;}
+#p2Panel .panel-head h2{color:#ff9fe6;text-shadow:0 0 12px rgba(255,159,230,.5);}
+#p2Panel .panel-head h2::before{color:#ff9fe6;}
+#p1Panel .total-row b{color:#5ff0d0;text-shadow:0 0 16px rgba(95,240,208,.6);}
+#p2Panel .total-row b{color:#ff9fe6;text-shadow:0 0 16px rgba(255,159,230,.6);}
+#p1Panel.active{box-shadow:0 0 0 2px rgba(95,240,208,.55), 0 0 34px rgba(95,240,208,.28);}
+#p2Panel.active{box-shadow:0 0 0 2px rgba(255,159,230,.55), 0 0 34px rgba(255,159,230,.28);}
+
+.duo-slots{grid-template-rows:none;grid-auto-rows:auto;gap:8px;}
+.duo-slots .slot{min-height:86px;padding:7px 5px 6px;}
+.duo-slots .slot .icon-wrap{width:52px;height:52px;border-radius:9px;}
+.duo-slots .slot .icon-wrap img{width:52px;height:52px;}
+.duo-slots .slot .icon-wrap::after{font-size:18px;}
+.duo-slots .slot .name{font-size:11px;}
+.duo-slots .slot.filled{background:linear-gradient(160deg, rgba(22,58,80,.6), rgba(8,22,40,.75));}
+#p2Panel .duo-slots .slot.filled{
+  background:linear-gradient(160deg, rgba(72,22,62,.6), rgba(38,8,32,.75));
+  border-color:rgba(255,159,230,.3);
+}
+#p1Panel .duo-slots .slot.filled{border-color:rgba(95,240,208,.35);}
+
+/* ---------- 双人设置弹窗 ---------- */
+.modal-overlay{
+  position:fixed;inset:0;z-index:50;
+  display:none;
+  align-items:center;justify-content:center;
+  padding:20px;
+  background:rgba(2,4,12,.78);
+  backdrop-filter:blur(7px);
+  -webkit-backdrop-filter:blur(7px);
+}
+.modal-overlay.show{display:flex;}
+.modal-box{
+  width:min(440px,94vw);
+  max-height:92vh;overflow-y:auto;
+  background:linear-gradient(160deg, rgba(16,30,64,.98), rgba(8,14,34,.98));
+  border:1px solid rgba(110,170,255,.35);
+  border-radius:20px;
+  padding:24px 26px 22px;
+  box-shadow:0 0 60px rgba(40,90,200,.45), inset 0 0 40px rgba(40,90,200,.08);
+  animation:modalIn .22s ease;
+}
+@keyframes modalIn{
+  from{opacity:0;transform:translateY(14px) scale(.97);}
+  to{opacity:1;transform:translateY(0) scale(1);}
+}
+.modal-box h3{
+  margin:0 0 18px;font-size:18px;letter-spacing:4px;color:#9fd4ff;
+  text-align:center;text-shadow:0 0 14px rgba(80,160,255,.55);font-weight:700;
+}
+.modal-box h3::before{content:"✦ ";color:#5ff0d0;}
+.modal-field{
+  display:flex;align-items:center;gap:10px;margin-bottom:13px;
+  font-size:13.5px;color:#9fc4ea;letter-spacing:1px;
+}
+.modal-field label{flex:0 0 108px;cursor:pointer;}
+.modal-field input[type=number]{
+  flex:1;min-width:0;padding:8px 12px;border-radius:10px;
+  background:rgba(10,20,45,.85);
+  border:1px solid rgba(110,170,255,.3);
+  color:#5ff0d0;font-size:14px;font-weight:700;text-align:center;
+  outline:none;font-family:inherit;
+  -moz-appearance:textfield;
+  transition:.2s;
+}
+.modal-field input[type=number]::-webkit-outer-spin-button,
+.modal-field input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+.modal-field input[type=text]{
+  flex:1;min-width:0;padding:8px 12px;border-radius:10px;
+  background:rgba(10,20,45,.85);
+  border:1px solid rgba(110,170,255,.3);
+  color:#5ff0d0;font-size:13px;font-weight:700;letter-spacing:1px;
+  outline:none;font-family:inherit;transition:.2s;
+}
+.modal-field input:focus{
+  border-color:#5ff0d0;
+  box-shadow:0 0 14px rgba(95,240,208,.4);
+  background:rgba(12,30,55,.95);
+}
+.modal-field input::placeholder{color:#5c7396;font-weight:400;letter-spacing:0;}
+.modal-hint{
+  font-size:11.5px;color:#6f8cb5;line-height:1.75;letter-spacing:.4px;
+  margin:4px 0 18px;
+  padding:10px 12px;border-radius:10px;
+  background:rgba(10,22,50,.5);
+  border:1px solid rgba(110,170,255,.12);
+}
+.modal-actions{display:flex;gap:12px;}
+.modal-btn-start{
+  flex:1;padding:12px;border-radius:12px;
+  font-size:14px;letter-spacing:3px;
+  background:linear-gradient(135deg, rgba(26,86,150,.9), rgba(22,120,138,.85));
+  border:1px solid rgba(95,240,208,.5);
+  color:#dcfffa;text-shadow:0 0 12px rgba(95,240,208,.6);
+  cursor:pointer;font-family:inherit;transition:.2s;
+}
+.modal-btn-start:hover{
+  background:linear-gradient(135deg, rgba(40,130,200,.95), rgba(32,175,180,.9));
+  border-color:#7fffe0;
+  box-shadow:0 0 22px rgba(95,240,208,.45);
+}
+.modal-btn-start:active{transform:scale(.98);}
+.modal-btn-cancel{
+  flex:0 0 auto;padding:12px 20px;border-radius:12px;
+  font-size:13px;letter-spacing:2px;
+  background:rgba(20,45,90,.6);
+  border:1px solid rgba(110,170,255,.3);
+  color:#bfe0ff;cursor:pointer;font-family:inherit;transition:.2s;
+}
+.modal-btn-cancel:hover{
+  background:rgba(35,80,150,.75);
+  border-color:rgba(255,150,150,.6);color:#fff;
+}
+
+/* ---------- Toast ---------- */
+#toast{
+  position:fixed;left:50%;bottom:132px;z-index:20;
+  transform:translate(-50%,16px);
+  padding:11px 22px;border-radius:12px;
+  background:rgba(60,10,20,.9);
+  border:1px solid rgba(255,110,110,.5);
+  color:#ffd7d7;font-size:13.5px;letter-spacing:1px;
+  opacity:0;pointer-events:none;
+  transition:opacity .25s, transform .25s;
+  box-shadow:0 0 26px rgba(255,60,60,.35);
+  white-space:nowrap;
+  max-width:90vw;
+  overflow:hidden;text-overflow:ellipsis;
+}
+#toast.show{opacity:1;transform:translate(-50%,0);}
+#toast.good{
+  background:rgba(8,50,44,.92);
+  border-color:rgba(95,240,208,.6);
+  color:#c8fff4;
+  box-shadow:0 0 26px rgba(95,240,208,.4);
+}
+</style>
+</head>
+<body>
+
+<canvas id="stars"></canvas>
+
+<header>
+  <h1>精灵费用计算器</h1>
+  <p id="subTitle">挑选最多 6 只精灵 · 仅「任意幼年体精灵」可重复选择</p>
+</header>
+
+<main id="main">
+
+  <!-- ★ 双人模式控制条 -->
+  <div id="duoBar" class="duo-bar"></div>
+
+  <section class="panel" id="poolPanel">
+    <div class="panel-head">
+      <h2>精灵池</h2>
+      <div class="head-tools">
+        <span class="edit-hint">✎ 点击费用数字可修改</span>
+        <input id="search" type="text" placeholder="搜索精灵名字…" autocomplete="off">
+      </div>
+    </div>
+    <div id="pool" class="pool-scroll"></div>
+    <div id="status" class="status">正在读取 197.xlsx …</div>
+  </section>
+
+  <!-- 单人模式阵容 -->
+  <aside class="panel" id="soloPanel">
+    <div class="panel-head">
+      <h2>出战阵容</h2>
+      <span id="count" style="color:#5ff0d0;font-size:13px;letter-spacing:2px;">0 / 6</span>
+    </div>
+    <div id="slots" class="slots"></div>
+
+    <div class="total-row">
+      <span>总费用</span>
+      <span><b id="total">0</b> / <span id="maxCostDisplay">40</span></span>
+    </div>
+
+    <div class="limit-row">
+      <label for="maxCost">费用上限</label>
+      <input id="maxCost" type="number" min="1" max="9999" step="1" value="40" inputmode="numeric">
+    </div>
+
+    <div class="bar"><div id="bar"></div></div>
+
+    <div class="actions">
+      <button id="random" type="button" class="primary">随机生成</button>
+      <button id="clear" type="button">清空阵容</button>
+    </div>
+  </aside>
+
+  <!-- ★ 双人模式：玩家 1 -->
+  <aside class="panel" id="p1Panel">
+    <div class="panel-head">
+      <h2>玩家1</h2>
+      <span id="p1Count" style="color:#5ff0d0;font-size:13px;letter-spacing:2px;">0 / 6</span>
+    </div>
+    <div id="p1Slots" class="slots duo-slots"></div>
+    <div class="total-row">
+      <span>总费用</span>
+      <span><b id="p1Cost">0</b> / <span id="p1CostMax">100</span></span>
+    </div>
+  </aside>
+
+  <!-- ★ 双人模式：玩家 2 -->
+  <aside class="panel" id="p2Panel">
+    <div class="panel-head">
+      <h2>玩家2</h2>
+      <span id="p2Count" style="color:#ff9fe6;font-size:13px;letter-spacing:2px;">0 / 6</span>
+    </div>
+    <div id="p2Slots" class="slots duo-slots"></div>
+    <div class="total-row">
+      <span>总费用</span>
+      <span><b id="p2Cost">0</b> / <span id="p2CostMax">100</span></span>
+    </div>
+  </aside>
+
+</main>
+
+<footer>
+  <div class="foot-inner">
+    <span class="line">适度游戏益脑，沉迷游戏伤身。</span>
+    <button id="diceBtn" class="dice-btn" type="button">
+      <span class="dice-face" id="diceFace">?</span>
+      <span>骰子</span>
+    </button>
+    <button id="modeBtn" class="file-btn" type="button">双人模式</button>
+    <button id="exportBtn" class="file-btn export" type="button">导出 .xlsx</button>
+    <select id="exportFormat" class="format-select" title="选择导出格式">
+      <option value="zip">ZIP 压缩包</option>
+      <option value="image/webp">WebP 图片</option>
+      <option value="image/jpeg">JPEG 图片</option>
+      <option value="image/png">PNG 图片</option>
+    </select>
+    <button id="exportImgBtn" class="file-btn png" type="button">导出精灵池 ZIP</button>
+    <label class="file-btn" for="fileInput">手动选择 .xlsx</label>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+  </div>
+</footer>
+
+<!-- ★ 双人模式设置弹窗 -->
+<div id="duoModal" class="modal-overlay">
+  <div class="modal-box">
+    <h3>双人模式设置</h3>
+
+    <div class="modal-field">
+      <label for="mName1">玩家 1 名称</label>
+      <input id="mName1" type="text" maxlength="10" value="玩家1" placeholder="玩家1">
+    </div>
+
+    <div class="modal-field">
+      <label for="mName2">玩家 2 名称</label>
+      <input id="mName2" type="text" maxlength="10" value="玩家2" placeholder="玩家2">
+    </div>
+
+    <div class="modal-field">
+      <label for="mTotal">每名玩家总数</label>
+      <input id="mTotal" type="number" min="1" max="50" step="1" value="6" inputmode="numeric">
+      <span>只</span>
+    </div>
+
+    <div class="modal-field">
+      <label for="mCost">费用上限</label>
+      <input id="mCost" type="number" min="1" max="9999" step="1" value="100" inputmode="numeric">
+      <span>费</span>
+    </div>
+
+    <div class="modal-field">
+      <label for="mBan">互相禁止数量</label>
+      <input id="mBan" type="number" min="0" max="50" step="1" value="3" inputmode="numeric">
+      <span>只</span>
+    </div>
+
+    <div class="modal-field">
+      <label for="mOrder">选人顺序</label>
+      <input id="mOrder" type="text" placeholder="留空 = 每次 1 只，如 1,2,2,1">
+    </div>
+
+    <div class="modal-hint">
+      选人顺序按回合交替分配每次可选数量，例如「1,2,2,1」表示 先手1只→后手2只→先手2只→后手1只；留空则每次1只。<br>
+      总数达到上限后该玩家不能再选；双方均选满（或都无精灵可选）后进入禁止阶段；禁止数量为 0 时直接结束，不进入禁止阶段。<br>
+      玩家名称默认为「玩家1」「玩家2」；弹窗关闭后，点击左右面板顶部的玩家名称也可随时修改。<br>
+      0 费精灵「暗雷」与「任意幼年体精灵」可重复选择。
+    </div>
+
+    <div class="modal-actions">
+      <button id="mCancel" class="modal-btn-cancel" type="button">取消</button>
+      <button id="mStart" class="modal-btn-start" type="button">开始对局</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ================= 配置 ================= */
+  const MAX_PICK = 6;                 // 单人：最多选 6 只
+  const DEFAULT_MAX_COST = 40;        // 单人：默认总费用上限
+  const MAX_COST_LIMIT = 9999;        // 上限输入框最大允许值
+  const XLSX_FILE = '197.xlsx';
+
+  /* ★ 双人模式：默认设置（可被用户覆盖） */
+  const DUO_DEFAULT_SETTINGS = {
+    total: 6,        // 每名玩家的精灵总数上限
+    costLimit: 100,  // 每名玩家的费用上限
+    banCount: 3,     // 双方互相禁止的精灵数量（0 = 不禁止）
+    order: [],       // 选人顺序（每回合可选数量），空 = 每次 1 只
+    names: ['玩家1', '玩家2']   // ★ 玩家名称
+  };
+  let savedDuoSettings = null;         // 记住上一次使用的双人设置
+
+  const ICON_DIRS = ['icon', 'icons'];
+  const EXTS = ['png','jpg','jpeg','webp','gif','bmp','svg','avif','PNG','JPG','JPEG'];
+
+  /* ★ 可重复选择的精灵：名字含「任意幼年体」或「暗雷」 */
+  function isRepeatable(p){
+    if(!p || typeof p.name !== 'string') return false;
+    return p.name.indexOf('任意幼年体') !== -1 || p.name.indexOf('暗雷') !== -1;
+  }
+
+  /* 0 费“优先添加”的精灵 */
+  function isPriorityZero(p){
+    return !!p && typeof p.name === 'string' && p.name.indexOf('钢牙鲨') !== -1;
+  }
+
+  /* ================= 内置默认精灵数据 ================= */
+  const DEFAULT_TEXT =
+`
+钢牙鲨	1
+魔花仙子	2
+天雷鼠	2
+悠悠	2
+格鲁奇高	2
+急冻兽	2
+巴尔克	3
+希路达	3
+贝尔鲁斯	3
+查理几斯	4
+鲁加斯	3
+布林克斯	3
+贝鲁基德	4
+布布花	5
+蘑菇怪	4
+电击兔	3
+波克尔	4
+哈尔浮	4
+梅鲁	4
+纳多雷	3
+魔牙鲨	5
+西萨琉拉	5
+巴洛卡	5
+卡尔特	4
+库博	5
+丁鲁特	4
+洛比特	5
+艾迪希洛	5
+克洛亚	5
+托尼亚	5
+克林卡修	5
+吉古拉	4
+奇拉塔顿	4
+烈焰猩猩	6
+塔奇拉顿	5
+巨型仙人掌	6
+西萨拉斯	6
+赫卡特	5
+柯蓝	5
+阿克西亚	6
+巴拉龟	6
+达鲁切尔	6
+暗雷	0
+阿克西亚	6
+艾斯菲亚	6
+
+
+
+`;
+
+  /* ================= 状态 ================= */
+  let pets = [];                      // [{name, cost}]
+  let selected = [];                  // 单人：选中的索引数组（可重复选择，故用数组）
+  let query = '';
+  let iconFailCount = 0;
+  let maxCost = DEFAULT_MAX_COST;     // 单人：总费用上限
+  let maxCostTimer = null;
+
+  /* ★ 模式与双人状态 */
+  let mode = 'solo';                  // 'solo' | 'duo'
+  let duo = null;                     // 双人状态对象
+
+  function cloneDuoSettings(s){
+    const nm = (s && s.names && s.names.length >= 2) ? s.names : DUO_DEFAULT_SETTINGS.names;
+    return {
+      total: s.total,
+      costLimit: s.costLimit,
+      banCount: s.banCount,
+      order: s.order.slice(),
+      names: [String(nm[0]), String(nm[1])]
+    };
+  }
+
+  function parseOrder(str){
+    const out = [];
+    String(str).split(/[\s,，、]+/).forEach(function(p){
+      if(!p) return;
+      const n = parseInt(p, 10);
+      if(isFinite(n) && n > 0) out.push(Math.min(50, Math.round(n)));
+    });
+    return out;
+  }
+
+  function newDuo(){
+    const base = savedDuoSettings || DUO_DEFAULT_SETTINGS;
+    const settings = cloneDuoSettings(base);
+    if(!settings.names || settings.names.length < 2){
+      settings.names = ['玩家1', '玩家2'];
+    }
+    return {
+      settings: settings,
+      teams: [[], []],                // 各自阵容（精灵索引）
+      banned: [new Set(), new Set()], // banned[pi]：玩家 pi 的阵容里已被禁止的精灵
+      first: null,                    // 先手玩家
+      current: 0,                     // 当前行动玩家
+      phase: 'settings',              // settings | choose-first | picking | banning | done
+      turnIdx: 0,                     // 当前回合序号（用于选人顺序）
+      pickRemaining: 0                // 当前回合还可选几只
+    };
+  }
+
+  /* ★ 取玩家显示名 */
+  function duoName(pi){
+    const n = duo && duo.settings && duo.settings.names;
+    const v = n && n[pi];
+    const s = (v === undefined || v === null) ? '' : String(v).trim();
+    return s || ('玩家' + (pi + 1));
+  }
+
+  /* ================= 星空背景 ================= */
+  const canvas = document.getElementById('stars');
+  const ctx = canvas.getContext('2d');
+  let stars = [], shooters = [], W = 0, H = 0;
+
+  function initStars(){
+    W = canvas.width  = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    stars = [];
+    const count = Math.min(420, Math.round(W * H / 6200));
+    for(let i = 0; i < count; i++){
+      stars.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        r: Math.random() * 1.3 + 0.25,
+        a: Math.random() * 0.7 + 0.3,
+        sp: Math.random() * 0.012 + 0.003,
+        dir: Math.random() < 0.5 ? -1 : 1,
+        hue: Math.random() < 0.18 ? (Math.random() < 0.5 ? 195 : 275) : null
+      });
+    }
+  }
+
+  function tick(){
+    ctx.clearRect(0, 0, W, H);
+    for(let i = 0; i < stars.length; i++){
+      const s = stars[i];
+      s.a += s.sp * s.dir;
+      if(s.a >= 1){ s.a = 1; s.dir = -1; }
+      if(s.a <= 0.15){ s.a = 0.15; s.dir = 1; }
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fillStyle = s.hue ? 'hsla(' + s.hue + ',100%,80%,' + s.a + ')' : 'rgba(255,255,255,' + s.a + ')';
+      ctx.fill();
+    }
+    if(Math.random() < 0.006 && shooters.length < 3){
+      shooters.push({
+        x: Math.random() * W * 0.85,
+        y: Math.random() * H * 0.4,
+        vx: 5 + Math.random() * 5,
+        vy: 2 + Math.random() * 2,
+        len: 8 + Math.random() * 8,
+        life: 1
+      });
+    }
+    for(let i = shooters.length - 1; i >= 0; i--){
+      const sh = shooters[i];
+      sh.x += sh.vx; sh.y += sh.vy; sh.life -= 0.011;
+      if(sh.life <= 0 || sh.x > W + 260 || sh.y > H + 260){ shooters.splice(i, 1); continue; }
+      const nx = sh.x - sh.vx * sh.len;
+      const ny = sh.y - sh.vy * sh.len;
+      const g = ctx.createLinearGradient(sh.x, sh.y, nx, ny);
+      g.addColorStop(0, 'rgba(190,235,255,' + sh.life + ')');
+      g.addColorStop(1, 'rgba(190,235,255,0)');
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sh.x, sh.y);
+      ctx.lineTo(nx, ny);
+      ctx.stroke();
+    }
+    requestAnimationFrame(tick);
+  }
+
+  initStars();
+  requestAnimationFrame(tick);
+  window.addEventListener('resize', initStars);
+
+  /* ================= 元素 & 工具 ================= */
+  const mainEl         = document.getElementById('main');
+  const poolEl         = document.getElementById('pool');
+  const slotsEl        = document.getElementById('slots');
+  const statusEl       = document.getElementById('status');
+  const totalEl        = document.getElementById('total');
+  const barEl          = document.getElementById('bar');
+  const countEl        = document.getElementById('count');
+  const toastEl        = document.getElementById('toast');
+  const maxCostInput   = document.getElementById('maxCost');
+  const maxCostDisplay = document.getElementById('maxCostDisplay');
+  const duoBar         = document.getElementById('duoBar');
+  const p1Panel        = document.getElementById('p1Panel');
+  const p2Panel        = document.getElementById('p2Panel');
+  const p1SlotsEl      = document.getElementById('p1Slots');
+  const p2SlotsEl      = document.getElementById('p2Slots');
+  const modeBtn        = document.getElementById('modeBtn');
+  const subTitleEl     = document.getElementById('subTitle');
+
+  /* ★ 弹窗元素 */
+  const duoModal   = document.getElementById('duoModal');
+  const mName1In   = document.getElementById('mName1');
+  const mName2In   = document.getElementById('mName2');
+  const mTotalIn   = document.getElementById('mTotal');
+  const mCostIn    = document.getElementById('mCost');
+  const mBanIn     = document.getElementById('mBan');
+  const mOrderIn   = document.getElementById('mOrder');
+  const mStartBtn  = document.getElementById('mStart');
+  const mCancelBtn = document.getElementById('mCancel');
+
+  let toastTimer = null;
+  function toast(msg, good){
+    toastEl.textContent = msg;
+    toastEl.classList.toggle('good', !!good);
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ toastEl.classList.remove('show'); }, 1900);
+  }
+
+  function setStatus(msg, type){
+    statusEl.textContent = msg;
+    statusEl.className = 'status' + (type ? ' ' + type : '');
+  }
+
+  /* 费用颜色：0/1 费 → 蓝(200)，12 费及以上 → 红(0) */
+  function costHue(c){
+    if(c <= 0) return 200;
+    const t = (Math.min(12, c) - 1) / 11;
+    return Math.round(200 - t * 200);
+  }
+  function paintCost(el, c){
+    const h = costHue(c);
+    el.style.color = 'hsl(' + h + ',100%,74%)';
+    el.style.border = '1px solid hsla(' + h + ',100%,60%,.55)';
+    el.style.background = 'hsla(' + h + ',100%,50%,.16)';
+  }
+
+  /* ================= 图标加载 ================= */
+  function buildIconPaths(name){
+    const paths = [];
+    const encoded = encodeURIComponent(name);
+    const variants = [name];
+    if(/\s/.test(name)){
+      variants.push(name.replace(/\s+/g, '_'));
+      variants.push(name.replace(/\s+/g, '-'));
+      variants.push(name.replace(/\s+/g, ''));
+    }
+
+    ICON_DIRS.forEach(function(dir){
+      variants.forEach(function(n){
+        EXTS.forEach(function(ext){
+          paths.push(dir + '/' + n + '.' + ext);
+        });
+      });
+    });
+    if(encoded !== name){
+      ICON_DIRS.forEach(function(dir){
+        EXTS.forEach(function(ext){
+          paths.push(dir + '/' + encoded + '.' + ext);
+        });
+      });
+    }
+    return paths;
+  }
+
+  function loadIcon(img, name){
+    const paths = buildIconPaths(name);
+    let idx = 0;
+    let failed = false;
+
+    function tryNext(){
+      if(idx >= paths.length){
+        if(!failed){
+          failed = true;
+          iconFailCount++;
+          img.style.display = 'none';
+          console.warn('[图标加载失败] ' + name + ' —— 已尝试 ' + paths.length + ' 个路径，例如：', paths[0]);
+          if(iconFailCount === 3){
+            setStatus('部分图标未能加载，请检查：① icon 文件夹是否与网页同级 ② 图片名是否与表格中的精灵名完全一致 ③ 浏览器控制台(F12)可看到具体尝试路径。', 'err');
+          }
+        }
+        return;
+      }
+      img.src = paths[idx++];
+    }
+
+    img.addEventListener('error', tryNext);
+    tryNext();
+  }
+
+  /* ================= 单人：工具 ================= */
+  function getTotal(){
+    let t = 0;
+    selected.forEach(function(i){ t += pets[i].cost; });
+    return t;
+  }
+
+  function countOf(i){
+    let n = 0;
+    for(let k = 0; k < selected.length; k++){
+      if(selected[k] === i) n++;
+    }
+    return n;
+  }
+
+  /* ================= ★ 双人：工具 ================= */
+  function duoCost(pi){
+    let t = 0;
+    const team = duo.teams[pi];
+    for(let k = 0; k < team.length; k++) t += pets[team[k]].cost;
+    return t;
+  }
+
+  /* 统计某个索引在某个阵容中出现次数（可重复精灵会出现多次） */
+  function countIn(team, i){
+    let n = 0;
+    for(let k = 0; k < team.length; k++){
+      if(team[k] === i) n++;
+    }
+    return n;
+  }
+
+  /* 玩家 pi 是否可以选择精灵 i */
+  function duoPickable(pi, i){
+    const p = pets[i];
+    if(!p) return false;
+    const myTeam = duo.teams[pi];
+    const otherTeam = duo.teams[1 - pi];
+    const total = duo.settings.total;
+    const costLimit = duo.settings.costLimit;
+
+    if(myTeam.length >= total) return false;              // 阵容已满
+    if(duoCost(pi) + p.cost > costLimit) return false;    // 费用不足
+
+    // ★ 可重复精灵：自己可以反复选（对方也照样可以选）
+    if(isRepeatable(p)) return true;
+
+    if(myTeam.indexOf(i) !== -1) return false;            // 自己已选过
+    if(otherTeam.indexOf(i) !== -1) return false;         // 对方已选走
+    return true;
+  }
+
+  /* 玩家 pi 还能不能选出任何一只 */
+  function duoCanPick(pi){
+    if(duo.teams[pi].length >= duo.settings.total) return false;
+    for(let i = 0; i < pets.length; i++){
+      if(duoPickable(pi, i)) return true;
+    }
+    return false;
+  }
+
+  /* 玩家 pi 还能不能继续禁止对方 */
+  function duoCanBan(pi){
+    const q = 1 - pi;
+    if(duo.settings.banCount <= 0) return false;
+    if(duo.banned[q].size >= duo.settings.banCount) return false;
+    const team = duo.teams[q];
+    for(let k = 0; k < team.length; k++){
+      if(!duo.banned[q].has(team[k])) return true;
+    }
+    return false;
+  }
+
+  /* ================= 通用：阵容渲染 ================= */
+  function renderSlots(container, team, maxSlots, opts){
+    opts = opts || {};
+    container.innerHTML = '';
+    const frag = document.createDocumentFragment();
+
+    for(let k = 0; k < maxSlots; k++){
+      const idx = team[k];
+      const slot = document.createElement('div');
+
+      if(idx === undefined || idx === null){
+        slot.className = 'slot empty';
+        slot.textContent = '＋';
+        frag.appendChild(slot);
+        continue;
+      }
+
+      const p = pets[idx];
+      if(!p){ continue; }
+
+      const isBanned = !!(opts.banned && opts.banned.has(idx));
+
+      slot.className = 'slot filled'
+        + (isBanned ? ' banned' : '')
+        + (opts.hoverable && !isBanned ? ' hoverable' : '');
+
+      if(isBanned) slot.title = p.name + '（已被禁止）';
+      else if(opts.hoverable) slot.title = '点击移除 ' + p.name;
+      else if(opts.banClick) slot.title = '点击禁止 ' + p.name;
+
+      const wrap = document.createElement('div');
+      wrap.className = 'icon-wrap';
+      wrap.dataset.initial = p.name.slice(0, 1);
+
+      const img = document.createElement('img');
+      img.alt = p.name;
+      img.draggable = false;
+      loadIcon(img, p.name);
+      wrap.appendChild(img);
+
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = p.name;
+
+      const cost = document.createElement('div');
+      cost.className = 'cost';
+      cost.textContent = p.cost;
+      paintCost(cost, p.cost);
+
+      slot.appendChild(wrap);
+      slot.appendChild(name);
+      slot.appendChild(cost);
+
+      if(isBanned){
+        const mark = document.createElement('div');
+        mark.className = 'ban-mark';
+        slot.appendChild(mark);
+      }else if(opts.onClick){
+        (function(index){
+          slot.addEventListener('click', function(){ opts.onClick(index); });
+        })(idx);
+      }
+
+      frag.appendChild(slot);
+    }
+    container.appendChild(frag);
+  }
+
+  /* ================= ★ 费用就地编辑 ================= */
+  function openCostEditor(card, i, costEl){
+    if(card.querySelector('.cost-input')) return;
+    const p = pets[i];
+    if(!p) return;
+
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'cost-input';
+    input.min = '0';
+    input.max = String(MAX_COST_LIMIT);
+    input.step = '1';
+    input.inputMode = 'numeric';
+    input.value = String(p.cost);
+
+    costEl.style.visibility = 'hidden';
+    card.appendChild(input);
+
+    let done = false;
+
+    function restore(){
+      if(input.parentNode) input.parentNode.removeChild(input);
+      costEl.style.visibility = '';
+    }
+
+    function finish(apply){
+      if(done) return;
+      done = true;
+
+      if(apply){
+        const raw = String(input.value).trim();
+        let v = parseInt(raw, 10);
+        if(raw === '' || !isFinite(v) || v < 0) v = p.cost;   // 非法输入 → 还原
+        if(v > MAX_COST_LIMIT) v = MAX_COST_LIMIT;
+
+        if(v !== p.cost){
+          p.cost = v;
+          refresh();                                           // 重绘（卡片会重新按费用分组）
+          toast('「' + p.name + '」费用已改为 ' + v, true);
+          return;
+        }
+      }
+      restore();
+    }
+
+    input.addEventListener('click', function(e){ e.stopPropagation(); });
+    input.addEventListener('mousedown', function(e){ e.stopPropagation(); });
+    input.addEventListener('keydown', function(e){
+      e.stopPropagation();
+      if(e.key === 'Enter'){ e.preventDefault(); input.blur(); }
+      else if(e.key === 'Escape'){
+        e.preventDefault();
+        done = true;
+        restore();
+      }
+    });
+    input.addEventListener('blur', function(){ finish(true); });
+
+    setTimeout(function(){ input.focus(); input.select(); }, 0);
+  }
+
+  /* ================= ★ 玩家名称就地编辑 ================= */
+  function openNameEditor(pi){
+    if(mode !== 'duo' || !duo) return;
+    const panel = pi === 0 ? p1Panel : p2Panel;
+    const h2 = panel.querySelector('.panel-head h2');
+    if(!h2 || !h2.parentNode) return;
+    if(panel.querySelector('.name-input')) return;   // 已在编辑中
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'name-input';
+    input.maxLength = 10;
+    input.value = duoName(pi);
+    input.placeholder = '玩家' + (pi + 1);
+
+    h2.style.display = 'none';
+    h2.parentNode.insertBefore(input, h2.nextSibling);
+
+    let done = false;
+
+    function restore(){
+      if(input.parentNode) input.parentNode.removeChild(input);
+      h2.style.display = '';
+    }
+
+    function finish(apply){
+      if(done) return;
+      done = true;
+
+      if(apply){
+        const v = String(input.value).trim().slice(0, 10) || ('玩家' + (pi + 1));
+        if(duo && duo.settings){
+          if(!duo.settings.names || duo.settings.names.length < 2){
+            duo.settings.names = ['玩家1', '玩家2'];
+          }
+          duo.settings.names[pi] = v;
+        }
+        if(savedDuoSettings){
+          if(!savedDuoSettings.names || savedDuoSettings.names.length < 2){
+            savedDuoSettings.names = ['玩家1', '玩家2'];
+          }
+          savedDuoSettings.names[pi] = v;
+        }
+      }
+
+      restore();
+      h2.textContent = duoName(pi);
+      if(mode === 'duo') renderDuoBar();
+    }
+
+    input.addEventListener('click', function(e){ e.stopPropagation(); });
+    input.addEventListener('mousedown', function(e){ e.stopPropagation(); });
+    input.addEventListener('keydown', function(e){
+      e.stopPropagation();
+      if(e.key === 'Enter'){ e.preventDefault(); input.blur(); }
+      else if(e.key === 'Escape'){
+        e.preventDefault();
+        done = true;
+        restore();
+        h2.textContent = duoName(pi);
+      }
+    });
+    input.addEventListener('blur', function(){ finish(true); });
+
+    setTimeout(function(){ input.focus(); input.select(); }, 0);
+  }
+
+  /* ================= 单张卡片 ================= */
+  function makeCard(i, soloTotal, soloFull){
+    const p = pets[i];
+    const repeatable = isRepeatable(p);
+
+    let isSel = false;
+    let blocked = false;
+    let cnt = 0;
+    const cls = ['card'];
+
+    if(mode === 'solo'){
+      cnt = countOf(i);
+      isSel = cnt > 0;
+      const canRemove = !repeatable && isSel;
+      blocked = !canRemove && (soloFull || soloTotal + p.cost > maxCost);
+      if(isSel) cls.push('selected');
+    }else{
+      // ★ 可重复精灵可能被同一玩家选多次，因此按出现次数统计
+      const c1 = countIn(duo.teams[0], i);
+      const c2 = countIn(duo.teams[1], i);
+      cnt = c1 + c2;
+      isSel = cnt > 0;
+      if(c1 > 0) cls.push('sel-p1');
+      if(c2 > 0) cls.push('sel-p2');
+      if(duo.phase === 'picking'){
+        blocked = !duoPickable(duo.current, i);
+      }
+    }
+
+    if(blocked) cls.push('blocked');
+    const card = document.createElement('div');
+    card.className = cls.join(' ');
+    card.dataset.index = i;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'icon-wrap';
+    wrap.dataset.initial = p.name.slice(0, 1);
+
+    const img = document.createElement('img');
+    img.alt = p.name;
+    img.draggable = false;
+    loadIcon(img, p.name);
+    wrap.appendChild(img);
+
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = p.name;
+    name.title = p.name + ' · ' + p.cost + '费' + (repeatable ? '（可重复选择）' : '');
+
+    const cost = document.createElement('div');
+    cost.className = 'cost';
+    cost.textContent = p.cost;
+    cost.title = '点击修改「' + p.name + '」的费用';
+    paintCost(cost, p.cost);
+
+    /* ★ 点击费用角标 → 就地编辑（不触发卡片选中） */
+    cost.addEventListener('click', function(ev){
+      ev.stopPropagation();
+      ev.preventDefault();
+      openCostEditor(card, i, cost);
+    });
+
+    card.appendChild(wrap);
+    card.appendChild(name);
+    card.appendChild(cost);
+
+    /* ★ 双人：标记归属 */
+    if(mode === 'duo'){
+      if(countIn(duo.teams[0], i) > 0){
+        const t1 = document.createElement('div');
+        t1.className = 'tag-p1';
+        t1.textContent = 'P1';
+        card.appendChild(t1);
+      }
+      if(countIn(duo.teams[1], i) > 0){
+        const t2 = document.createElement('div');
+        t2.className = 'tag-p2';
+        t2.textContent = 'P2';
+        card.appendChild(t2);
+      }
+    }
+
+    if(repeatable){
+      const tag = document.createElement('div');
+      tag.className = 'repeat-tag';
+      tag.textContent = cnt > 0 ? ('×' + cnt) : '可重复';
+      card.appendChild(tag);
+    }
+
+    card.addEventListener('click', function(){
+      if(mode === 'solo') toggle(i);
+      else duoClickPool(i);
+    });
+
+    return card;
+  }
+
+  /* ================= 渲染精灵池 ================= */
+  function renderPool(){
+    const q = query.trim().toLowerCase();
+
+    /* 池子锁定态：双人模式下仅在选人阶段可点 */
+    poolEl.classList.toggle(
+      'pool-locked',
+      mode === 'duo' && duo.phase !== 'picking'
+    );
+
+    const soloTotal = mode === 'solo' ? getTotal() : 0;
+    const soloFull  = mode === 'solo' ? (selected.length >= MAX_PICK) : false;
+
+    const groups = new Map();
+    for(let i = 0; i < pets.length; i++){
+      const p = pets[i];
+      if(q && p.name.toLowerCase().indexOf(q) === -1) continue;
+      if(!groups.has(p.cost)) groups.set(p.cost, []);
+      groups.get(p.cost).push(i);
+    }
+
+    poolEl.innerHTML = '';
+    if(groups.size === 0){
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = pets.length ? '没有匹配的精灵' : '暂无精灵数据';
+      poolEl.appendChild(empty);
+      return;
+    }
+
+    const costs = Array.from(groups.keys()).sort(function(a, b){ return a - b; });
+    const frag = document.createDocumentFragment();
+
+    costs.forEach(function(c){
+      const idxs = groups.get(c);
+
+      let repeatCount = 0;
+      idxs.forEach(function(i){ if(isRepeatable(pets[i])) repeatCount++; });
+      const allRepeatable = repeatCount > 0 && repeatCount === idxs.length;
+      const partRepeatable = repeatCount > 0 && repeatCount < idxs.length;
+
+      const group = document.createElement('div');
+      group.className = 'cost-group';
+
+      const head = document.createElement('div');
+      head.className = 'group-head';
+
+      const badge = document.createElement('span');
+      badge.className = 'group-badge';
+      badge.textContent = c + ' 费';
+      paintCost(badge, c);
+
+      const cnt = document.createElement('span');
+      cnt.className = 'group-count' + (allRepeatable ? ' repeatable' : '');
+      cnt.textContent = idxs.length + ' 只'
+        + (allRepeatable ? '（可重复）' : (partRepeatable ? '（部分可重复）' : ''));
+
+      head.appendChild(badge);
+      head.appendChild(cnt);
+
+      const grid = document.createElement('div');
+      grid.className = 'group-grid';
+      idxs.forEach(function(i){ grid.appendChild(makeCard(i, soloTotal, soloFull)); });
+
+      group.appendChild(head);
+      group.appendChild(grid);
+      frag.appendChild(group);
+    });
+
+    poolEl.appendChild(frag);
+  }
+
+  /* ================= 渲染单人阵容 ================= */
+  function renderTeam(){
+    renderSlots(slotsEl, selected, MAX_PICK, {
+      hoverable: true,
+      onClick: removeOne
+    });
+
+    const total = getTotal();
+    countEl.textContent = selected.length + ' / ' + MAX_PICK;
+    totalEl.textContent = total;
+    maxCostDisplay.textContent = maxCost;
+
+    totalEl.classList.remove('warn', 'over');
+    barEl.classList.remove('warn', 'over');
+    const pct = Math.min(100, total / maxCost * 100);
+    if(total > maxCost){
+      totalEl.classList.add('over');
+      barEl.classList.add('over');
+    }else if(total >= maxCost * 0.85){
+      totalEl.classList.add('warn');
+      barEl.classList.add('warn');
+    }
+    barEl.style.width = pct + '%';
+  }
+
+  /* ================= ★ 渲染双人阵容面板 ================= */
+  function renderDuoPanels(){
+    const activeP = (duo.phase === 'picking' || duo.phase === 'banning') ? duo.current : -1;
+    const total = duo.settings.total;
+    const costLimit = duo.settings.costLimit;
+
+    [[0, p1SlotsEl, 'p1'],[1, p2SlotsEl, 'p2']].forEach(function(item){
+      const pi = item[0], el = item[1], pre = item[2];
+      const banTarget = duo.phase === 'banning' && duo.current !== pi;
+
+      renderSlots(el, duo.teams[pi], total, {
+        banned: duo.banned[pi],
+        banClick: banTarget,
+        onClick: function(idx){ onDuoSlotClick(pi, idx); }
+      });
+
+      /* ★ 面板标题 = 玩家名称（可点击改名） */
+      const panel = pi === 0 ? p1Panel : p2Panel;
+      const h2 = panel.querySelector('.panel-head h2');
+      if(h2) h2.textContent = duoName(pi);
+
+      document.getElementById(pre + 'Count').textContent =
+        duo.teams[pi].length + ' / ' + total;
+
+      const c = duoCost(pi);
+      const cEl = document.getElementById(pre + 'Cost');
+      cEl.textContent = c;
+      cEl.classList.remove('warn', 'over');
+      if(c > costLimit) cEl.classList.add('over');
+      else if(costLimit > 0 && c >= costLimit * 0.85) cEl.classList.add('warn');
+
+      const maxEl = document.getElementById(pre + 'CostMax');
+      if(maxEl) maxEl.textContent = costLimit;
+    });
+
+    p1Panel.classList.toggle('active', activeP === 0);
+    p2Panel.classList.toggle('active', activeP === 1);
+  }
+
+  /* ================= ★ 渲染双人控制条 ================= */
+  function renderDuoBar(){
+    duoBar.innerHTML = '';
+
+    function mk(tag, cls, text){
+      const el = document.createElement(tag);
+      if(cls) el.className = cls;
+      if(text != null) el.textContent = text;
+      duoBar.appendChild(el);
+      return el;
+    }
+
+    function addRestart(){
+      const b = mk('button', 'duo-btn', '重开对局');
+      b.type = 'button';
+      b.addEventListener('click', function(){
+        savedDuoSettings = cloneDuoSettings(duo.settings);
+        duo = newDuo();
+        openDuoModal();
+        refresh();
+      });
+    }
+
+    /* —— 设置阶段：等待弹窗完成 —— */
+    if(duo.phase === 'settings'){
+      mk('span', 'duo-msg', '双人模式设置尚未完成');
+      const b = mk('button', 'duo-btn p1', '打开设置');
+      b.type = 'button';
+      b.addEventListener('click', openDuoModal);
+      mk('span', 'duo-info', '请在弹窗中完成设置后开始对局');
+      return;
+    }
+
+    /* —— 选择先手 —— */
+    if(duo.phase === 'choose-first'){
+      const s = duo.settings;
+      mk('span', 'duo-msg', '请选择先手玩家：');
+      const b1 = mk('button', 'duo-btn p1', duoName(0) + ' 先手');
+      b1.type = 'button';
+      b1.addEventListener('click', function(){
+        duo.first = 0;
+        duo.phase = 'picking';
+        startTurnFrom(0);
+      });
+      const b2 = mk('button', 'duo-btn p2', duoName(1) + ' 先手');
+      b2.type = 'button';
+      b2.addEventListener('click', function(){
+        duo.first = 1;
+        duo.phase = 'picking';
+        startTurnFrom(0);
+      });
+      mk('span', 'duo-info',
+        '每名玩家 ' + s.total + ' 只 · ' + s.costLimit + ' 费 · 互相禁止 ' + s.banCount + ' 只');
+      addRestart();
+      return;
+    }
+
+    /* —— 选人 —— */
+    if(duo.phase === 'picking'){
+      const s = duo.settings;
+      mk('span', 'duo-msg', '选人阶段 · 轮到');
+      mk('span', 'duo-cur p' + (duo.current + 1), duoName(duo.current));
+      mk('span', 'duo-msg', '本回合还可选 ' + duo.pickRemaining + ' 只');
+      mk('span', 'duo-info',
+        duoName(0) + ' ' + duo.teams[0].length + '/' + s.total + '只 · ' + duoCost(0) + '/' + s.costLimit + '费' +
+        '　|　' + duoName(1) + ' ' + duo.teams[1].length + '/' + s.total + '只 · ' + duoCost(1) + '/' + s.costLimit + '费');
+      addRestart();
+      return;
+    }
+
+    /* —— 禁止 —— */
+    if(duo.phase === 'banning'){
+      const s = duo.settings;
+      const done = duo.banned[1 - duo.current].size;
+      mk('span', 'duo-msg', '禁止阶段 · 轮到');
+      mk('span', 'duo-cur p' + (duo.current + 1), duoName(duo.current));
+      mk('span', 'duo-msg', '点击对方阵容中的精灵禁止（' + done + ' / ' + s.banCount + '）');
+      addRestart();
+      return;
+    }
+
+    /* —— 结束 —— */
+    mk('span', 'duo-msg', '★ 对局结束'
+      + (duo.settings.banCount > 0
+        ? ' · 双方各禁止了对方 ' + duo.settings.banCount + ' 只精灵'
+        : ' · 禁止数量为 0'));
+    addRestart();
+  }
+
+  /* ================= ★ 双人设置弹窗 ================= */
+  function openDuoModal(){
+    const s = (duo && duo.settings) || savedDuoSettings || DUO_DEFAULT_SETTINGS;
+    const names = (s.names && s.names.length >= 2) ? s.names : DUO_DEFAULT_SETTINGS.names;
+
+    mName1In.value = names[0];
+    mName2In.value = names[1];
+    mTotalIn.value = s.total;
+    mCostIn.value = s.costLimit;
+    mBanIn.value = s.banCount;
+    mOrderIn.value = s.order.join(',');
+    duoModal.classList.add('show');
+  }
+
+  function closeDuoModal(){
+    duoModal.classList.remove('show');
+  }
+
+  mStartBtn.addEventListener('click', function(){
+    if(!duo || mode !== 'duo') return;
+
+    /* ★ 玩家名称 */
+    const n1 = (String(mName1In.value).trim() || '玩家1').slice(0, 10);
+    const n2 = (String(mName2In.value).trim() || '玩家2').slice(0, 10);
+    mName1In.value = n1;
+    mName2In.value = n2;
+
+    let total = parseInt(mTotalIn.value, 10);
+    if(!isFinite(total) || total < 1) total = 1;
+    total = Math.min(50, Math.round(total));
+    mTotalIn.value = total;
+
+    let cost = parseInt(mCostIn.value, 10);
+    if(!isFinite(cost) || cost < 1) cost = 1;
+    cost = Math.min(9999, Math.round(cost));
+    mCostIn.value = cost;
+
+    let ban = parseInt(mBanIn.value, 10);
+    if(!isFinite(ban) || ban < 0) ban = 0;
+    ban = Math.min(50, Math.round(ban));
+    mBanIn.value = ban;
+
+    const order = parseOrder(mOrderIn.value);
+    mOrderIn.value = order.join(',');
+
+    duo.settings.names = [n1, n2];
+    duo.settings.total = total;
+    duo.settings.costLimit = cost;
+    duo.settings.banCount = ban;
+    duo.settings.order = order;
+    savedDuoSettings = cloneDuoSettings(duo.settings);
+
+    duo.phase = 'choose-first';
+    closeDuoModal();
+    refresh();
+    toast('双人模式设置完成，请选择先手玩家', true);
+  });
+
+  mCancelBtn.addEventListener('click', function(){
+    closeDuoModal();
+    refresh();
+  });
+
+  /* ================= 统一刷新 ================= */
+  function refresh(){
+    renderPool();
+    if(mode === 'solo'){
+      renderTeam();
+    }else{
+      renderDuoPanels();
+      renderDuoBar();
+    }
+  }
+
+  /* ================= 单人：选择逻辑 ================= */
+  function removeOne(i){
+    const k = selected.indexOf(i);
+    if(k === -1) return;
+    selected.splice(k, 1);
+    refresh();
+  }
+
+  function toggle(i){
+    const p = pets[i];
+    if(!p) return;
+
+    const repeatable = isRepeatable(p);
+
+    if(!repeatable && selected.indexOf(i) !== -1){
+      removeOne(i);
+      return;
+    }
+
+    if(selected.length >= MAX_PICK){
+      toast('最多只能选择 ' + MAX_PICK + ' 只精灵');
+      return;
+    }
+
+    const total = getTotal();
+    if(total + p.cost > maxCost){
+      toast('费用超出！' + total + ' + ' + p.cost + ' = ' + (total + p.cost) + ' > ' + maxCost);
+      return;
+    }
+
+    selected.push(i);
+    refresh();
+  }
+
+  /* ================= ★ 双人：选择逻辑 ================= */
+  function duoClickPool(i){
+    if(duo.phase === 'settings'){
+      toast('请先在弹窗中完成双人模式设置');
+      return;
+    }
+    if(duo.phase === 'choose-first'){
+      toast('请先在上方选择先手玩家');
+      return;
+    }
+    if(duo.phase === 'banning'){
+      toast('选人阶段已结束，请点击对方阵容中的精灵进行禁止');
+      return;
+    }
+    if(duo.phase === 'done'){
+      toast('对局已结束，请点击「重开对局」');
+      return;
+    }
+
+    const pi = duo.current;
+    const s = duo.settings;
+
+    if(!duoPickable(pi, i)){
+      const p = pets[i];
+      if(duo.teams[pi].length >= s.total) toast(duoName(pi) + ' 已选满 ' + s.total + ' 只');
+      else if(duoCost(pi) + p.cost > s.costLimit) toast('费用不足！剩余 ' + (s.costLimit - duoCost(pi)) + ' 费，需要 ' + p.cost + ' 费（可选 0 费精灵补位）');
+      else if(duo.teams[pi].indexOf(i) !== -1) toast('你已选择过该精灵');
+      else toast('该精灵已被对方选择');
+      return;
+    }
+
+    duo.teams[pi].push(i);
+    duo.pickRemaining--;
+
+    /* 回合结束条件：本回合次数用尽 / 已选满 / 无法继续选择 */
+    if(duo.pickRemaining <= 0
+      || duo.teams[pi].length >= s.total
+      || !duoCanPick(pi)){
+      advanceTurn();
+    }else{
+      refresh();
+    }
+  }
+
+  /* ★ 从指定回合序号开始尝试开启一个回合 */
+  function startTurnFrom(idx){
+    const total = duo.settings.total;
+    const order = duo.settings.order;
+
+    for(let guard = 0; guard < 1000; guard++){
+      /* 结束条件 */
+      if(duo.teams[0].length >= total && duo.teams[1].length >= total){
+        startBanPhase(); return;
+      }
+      if(!duoCanPick(0) && !duoCanPick(1)){
+        startBanPhase(); return;
+      }
+
+      let batch = order[idx];
+      if(batch === undefined) batch = 1;                 // 顺序用完后默认每次 1 只
+      const player = ((duo.first || 0) + idx) % 2;
+      const slotsLeft = total - duo.teams[player].length;
+
+      if(slotsLeft > 0 && duoCanPick(player)){
+        duo.turnIdx = idx;
+        duo.current = player;
+        duo.pickRemaining = Math.min(batch, slotsLeft);
+        refresh();
+        return;
+      }
+      idx++;
+    }
+    startBanPhase();
+  }
+
+  function advanceTurn(){
+    startTurnFrom(duo.turnIdx + 1);
+  }
+
+  function startBanPhase(){
+    if(duo.settings.banCount <= 0){
+      duo.phase = 'done';
+      toast('双方阵容已确定（互相禁止 0 只）', true);
+      refresh();
+      return;
+    }
+    duo.phase = 'banning';
+    duo.current = duo.first;
+
+    if(!duoCanBan(duo.current)){
+      if(duoCanBan(1 - duo.current)){
+        duo.current = 1 - duo.current;
+      }else{
+        duo.phase = 'done';
+        toast('双方阵容均无可禁止目标 · 对局结束', true);
+        refresh();
+        return;
+      }
+    }
+    toast('选人完成！轮到 ' + duoName(duo.current) + ' 禁止对方精灵', true);
+    refresh();
+  }
+
+  function onDuoSlotClick(owner, idx){
+    if(duo.phase !== 'banning') return;
+    if(owner === duo.current){
+      toast('只能禁止对方阵容中的精灵');
+      return;
+    }
+    if(duo.banned[owner].has(idx)) return;
+    if(duo.banned[owner].size >= duo.settings.banCount){
+      toast('你已禁止对方 ' + duo.settings.banCount + ' 只精灵');
+      return;
+    }
+
+    duo.banned[owner].add(idx);
+    toast('已禁止：' + pets[idx].name, true);
+    advanceBan();
+  }
+
+  function advanceBan(){
+    if(!duoCanBan(0) && !duoCanBan(1)){
+      duo.phase = 'done';
+      refresh();
+      return;
+    }
+    const other = 1 - duo.current;
+    if(duoCanBan(other)) duo.current = other;
+    refresh();
+  }
+
+  /* ================= 模式切换 ================= */
+  function setMode(m){
+    if(m === mode) return;
+    mode = m;
+
+    if(mode === 'duo'){
+      duo = newDuo();
+      mainEl.classList.add('duo');
+      modeBtn.textContent = '单人模式';
+      subTitleEl.textContent = '双人对战 · 自定义玩家名 / 总数 / 费用 / 禁止数 · 轮流选人';
+      openDuoModal();
+    }else{
+      duo = null;
+      closeDuoModal();
+      mainEl.classList.remove('duo');
+      modeBtn.textContent = '双人模式';
+      subTitleEl.textContent = '挑选最多 6 只精灵 · 仅「任意幼年体精灵」可重复选择';
+      selected = [];
+    }
+    refresh();
+  }
+
+  /* ================= 随机生成队伍（单人） ================= */
+  function shuffleArr(a){
+    for(let i = a.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  function findCostCombo(byCost, target, maxCount){
+    const order = shuffleArr(Array.from(byCost.keys()));
+    const picked = [];
+    let nodes = 0;
+    const NODE_LIMIT = 400000;
+
+    function dfs(pos, remain, slots){
+      if(remain === 0) return true;
+      if(slots <= 0 || pos >= order.length) return false;
+      if(++nodes > NODE_LIMIT) return false;
+
+      const c = order[pos];
+      const maxTake = Math.min(
+        Math.floor(remain / c),
+        slots,
+        byCost.get(c).length
+      );
+
+      const tryOrder = [];
+      for(let t = 0; t <= maxTake; t++) tryOrder.push(t);
+      shuffleArr(tryOrder);
+
+      for(let ti = 0; ti < tryOrder.length; ti++){
+        const t = tryOrder[ti];
+        for(let q = 0; q < t; q++) picked.push(c);
+        if(dfs(pos + 1, remain - t * c, slots - t)) return true;
+        for(let q = 0; q < t; q++) picked.pop();
+      }
+      return false;
+    }
+
+    return dfs(0, target, maxCount) ? picked.slice() : null;
+  }
+
+  function generateRandomTeam(){
+    if(!pets.length){
+      toast('暂无精灵数据，无法生成队伍');
+      return;
+    }
+
+    const target = maxCost;
+
+    const byCost = new Map();
+    for(let i = 0; i < pets.length; i++){
+      const c = pets[i].cost;
+      if(c <= 0 || c > target) continue;
+      if(!byCost.has(c)) byCost.set(c, []);
+      byCost.get(c).push(i);
+    }
+
+    if(byCost.size === 0){
+      toast('没有可用的非 0 费精灵（费用均超过上限 ' + target + '）');
+      return;
+    }
+
+    const combo = findCostCombo(byCost, target, MAX_PICK);
+    if(!combo){
+      toast('凑不出正好 ' + target + ' 费的队伍（最多 ' + MAX_PICK + ' 只）');
+      return;
+    }
+
+    const pool = new Map();
+    byCost.forEach(function(arr, c){ pool.set(c, arr.slice()); });
+
+    const team = [];
+    for(let k = 0; k < combo.length; k++){
+      const c = combo[k];
+      const arr = pool.get(c);
+      const pos = Math.floor(Math.random() * arr.length);
+      team.push(arr.splice(pos, 1)[0]);
+    }
+
+    let slots = MAX_PICK - team.length;
+    if(slots > 0){
+      let shark = -1;
+      const zeroOnce = [];
+      const zeroRepeat = [];
+
+      for(let i = 0; i < pets.length; i++){
+        if(pets[i].cost !== 0) continue;
+        if(isPriorityZero(pets[i])){ if(shark < 0) shark = i; continue; }
+        if(isRepeatable(pets[i])) zeroRepeat.push(i);
+        else zeroOnce.push(i);
+      }
+
+      if(shark >= 0 && slots > 0){ team.push(shark); slots--; }
+
+      for(let k = 0; k < zeroOnce.length && slots > 0; k++){
+        team.push(zeroOnce[k]); slots--;
+      }
+
+      while(slots > 0 && zeroRepeat.length > 0){
+        team.push(zeroRepeat[Math.floor(Math.random() * zeroRepeat.length)]);
+        slots--;
+      }
+    }
+
+    selected = team;
+    refresh();
+
+    const total = getTotal();
+    if(total !== target){
+      toast('生成结果费用为 ' + total + '（目标 ' + target + '），请调整上限后重试');
+    }else if(selected.length < MAX_PICK){
+      toast('已生成队伍：' + selected.length + ' 只 · 总费用 ' + total + '（凑不出更多 0 费补位）');
+    }else{
+      toast('已生成队伍：6 只 · 总费用 ' + total, true);
+    }
+  }
+
+  /* ================= ★ 导出 xlsx ================= */
+  function exportXlsx(){
+    if(typeof XLSX === 'undefined'){
+      toast('导出失败：解析库尚未加载完成，请稍后重试');
+      return;
+    }
+    if(!pets.length){
+      toast('没有精灵数据可导出');
+      return;
+    }
+
+    const aoa = [['精灵名', '费用']];
+    for(let i = 0; i < pets.length; i++){
+      aoa.push([pets[i].name, pets[i].cost]);
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 26 }, { wch: 10 }];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '精灵费用');
+
+    const d = new Date();
+    const pad = function(n){ return String(n).padStart(2, '0'); };
+    const stamp = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate())
+                + '_' + pad(d.getHours()) + pad(d.getMinutes());
+
+    try{
+      XLSX.writeFile(wb, '精灵费用_' + stamp + '.xlsx');
+      toast('已导出 ' + pets.length + ' 只精灵的费用表', true);
+    }catch(err){
+      console.error(err);
+      toast('导出失败：' + err.message);
+    }
+  }
+
+  /* ================= ★ 导出精灵池图片（WebP / JPEG / PNG 可选） ================= */
+  const PNG_FONT = '"Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif';
+  const PNG_CARD_W = 110;
+  const PNG_CARD_H = 130;
+  const PNG_GAP = 12;
+  const PNG_PAD = 26;
+
+  /* 圆角矩形路径 */
+  function rr(c, x, y, w, h, r){
+    r = Math.min(r, w / 2, h / 2);
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+  }
+
+  /* 文本按宽度截断加省略号 */
+  function fitText(c, text, maxW){
+    if(c.measureText(text).width <= maxW) return text;
+    let t = text;
+    while(t.length > 1 && c.measureText(t + '…').width > maxW){
+      t = t.slice(0, -1);
+    }
+    return t + '…';
+  }
+
+  /* 为导出预加载图标（依次尝试 icon/ 的各种路径） */
+  function loadIconForExport(name){
+    return new Promise(function(resolve){
+      const paths = buildIconPaths(name);
+      if(!paths.length) return resolve(null);
+
+      const img = new Image();
+      let i = 0, settled = false;
+
+      function done(v){
+        if(settled) return;
+        settled = true;
+        resolve(v);
+      }
+      function next(){
+        if(i >= paths.length){ done(null); return; }
+        img.src = paths[i++];
+      }
+
+      img.onload = function(){ done(img); };
+      img.onerror = next;
+      next();
+    });
+  }
+
+  /* 画一张精灵卡片（导出用） */
+  function drawPoolCard(c, x, y, p, img){
+    const W = PNG_CARD_W, H = PNG_CARD_H;
+
+    /* 卡片底 */
+    const g = c.createLinearGradient(x, y, x + W * 0.45, y + H);
+    g.addColorStop(0, 'rgba(32,54,104,.95)');
+    g.addColorStop(1, 'rgba(10,18,40,.98)');
+    rr(c, x, y, W, H, 13);
+    c.fillStyle = g;
+    c.fill();
+    c.lineWidth = 1;
+    c.strokeStyle = 'rgba(110,170,255,.22)';
+    c.stroke();
+
+    /* 图标区 */
+    const iw = W - 16;
+    const ix = x + 8, iy = y + 8;
+    rr(c, ix, iy, iw, iw, 11);
+    const ig = c.createRadialGradient(
+      ix + iw / 2, iy + iw * 0.38, 2,
+      ix + iw / 2, iy + iw / 2, iw * 0.78
+    );
+    ig.addColorStop(0, 'rgba(80,140,255,.22)');
+    ig.addColorStop(1, 'rgba(8,16,38,.82)');
+    c.fillStyle = ig;
+    c.fill();
+
+    c.save();
+    rr(c, ix, iy, iw, iw, 11);
+    c.clip();
+    if(img){
+      c.drawImage(img, ix, iy, iw, iw);
+    }else{
+      c.fillStyle = 'rgba(140,190,255,.40)';
+      c.font = '700 34px ' + PNG_FONT;
+      c.textAlign = 'center';
+      c.fillText(p.name.slice(0, 1), ix + iw / 2, iy + iw / 2);
+    }
+    c.restore();
+
+    /* 名字 */
+    c.textAlign = 'center';
+    c.fillStyle = '#cfe3ff';
+    c.font = '600 12px ' + PNG_FONT;
+    c.fillText(fitText(c, p.name, W - 14), x + W / 2, iy + iw + 17);
+
+    /* 费用角标 */
+    const hue = costHue(p.cost);
+    const cs = String(p.cost);
+    c.font = '700 11px ' + PNG_FONT;
+    const tw = c.measureText(cs).width;
+    const bw = Math.max(22, tw + 12), bh = 18;
+    const bx = x + W - 6 - bw, by = y + 6;
+    rr(c, bx, by, bw, bh, 7);
+    c.fillStyle = 'hsla(' + hue + ',100%,50%,.30)';
+    c.fill();
+    c.strokeStyle = 'hsla(' + hue + ',100%,62%,.80)';
+    c.lineWidth = 1;
+    c.stroke();
+    c.fillStyle = 'hsl(' + hue + ',100%,76%)';
+    c.fillText(cs, bx + bw / 2, by + bh / 2 + 0.5);
+  }
+
+  async function exportPoolImage(mime){
+    if(!pets.length){
+      toast('暂无精灵数据，无法导出图片');
+      return;
+    }
+
+    /* 收集当前筛选结果（与界面显示一致） */
+    const q = query.trim().toLowerCase();
+    const groups = new Map();
+    for(let i = 0; i < pets.length; i++){
+      const p = pets[i];
+      if(q && p.name.toLowerCase().indexOf(q) === -1) continue;
+      if(!groups.has(p.cost)) groups.set(p.cost, []);
+      groups.get(p.cost).push(p);
+    }
+    if(!groups.size){
+      toast('当前筛选结果为空，无法导出图片');
+      return;
+    }
+
+    const btn = document.getElementById('exportImgBtn');
+    const oldLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '正在生成…';
+
+    try{
+      const costs = Array.from(groups.keys()).sort(function(a, b){ return a - b; });
+
+      /* 列数：最多 8 列 */
+      let maxGroupSize = 0;
+      costs.forEach(function(c){
+        maxGroupSize = Math.max(maxGroupSize, groups.get(c).length);
+      });
+      const COLS = Math.max(1, Math.min(8, maxGroupSize));
+
+      const blocks = costs.map(function(c){
+        const arr = groups.get(c);
+        return { cost: c, arr: arr, rows: Math.ceil(arr.length / COLS) };
+      });
+
+      const gridW = COLS * PNG_CARD_W + (COLS - 1) * PNG_GAP;
+      const W = PNG_PAD * 2 + gridW;
+
+      const HEADER_H = 64;
+      let H = PNG_PAD + HEADER_H;
+      blocks.forEach(function(b){
+        H += 30 + b.rows * PNG_CARD_H + (b.rows - 1) * PNG_GAP + 22;
+      });
+      H += PNG_PAD - 22;
+      H = Math.round(H);
+
+      /* 预加载图标 */
+      const names = [];
+      const nameSeen = Object.create(null);
+      blocks.forEach(function(b){
+        b.arr.forEach(function(p){
+          if(!nameSeen[p.name]){
+            nameSeen[p.name] = true;
+            names.push(p.name);
+          }
+        });
+      });
+      const iconMap = new Map();
+      await Promise.all(names.map(function(n){
+        return loadIconForExport(n).then(function(img){
+          if(img) iconMap.set(n, img);
+        });
+      }));
+
+      /* 建画布（2 倍分辨率，更清晰） */
+      const SCALE = 2;
+      const cv = document.createElement('canvas');
+      cv.width  = Math.round(W * SCALE);
+      cv.height = Math.round(H * SCALE);
+      const c2 = cv.getContext('2d');
+      c2.scale(SCALE, SCALE);
+      c2.textBaseline = 'middle';
+
+      /* 背景（不透明，JPEG 也安全） */
+      const bg = c2.createLinearGradient(0, 0, W * 0.5, H);
+      bg.addColorStop(0, '#0a1330');
+      bg.addColorStop(0.5, '#060a1c');
+      bg.addColorStop(1, '#03050e');
+      c2.fillStyle = bg;
+      c2.fillRect(0, 0, W, H);
+
+      /* 柔和光晕 */
+      const gl1 = c2.createRadialGradient(W * 0.15, 0, 10, W * 0.15, 0, W * 0.8);
+      gl1.addColorStop(0, 'rgba(38,80,180,.35)');
+      gl1.addColorStop(1, 'rgba(38,80,180,0)');
+      c2.fillStyle = gl1;
+      c2.fillRect(0, 0, W, H);
+
+      const gl2 = c2.createRadialGradient(W * 0.9, H * 0.1, 10, W * 0.9, H * 0.1, W * 0.6);
+      gl2.addColorStop(0, 'rgba(120,50,190,.22)');
+      gl2.addColorStop(1, 'rgba(120,50,190,0)');
+      c2.fillStyle = gl2;
+      c2.fillRect(0, 0, W, H);
+
+      /* 标题 */
+      let y = PNG_PAD;
+      c2.textAlign = 'left';
+      c2.fillStyle = '#9fd4ff';
+      c2.font = '700 24px ' + PNG_FONT;
+      c2.shadowColor = 'rgba(80,160,255,.75)';
+      c2.shadowBlur = 16;
+      c2.fillText('精灵池', PNG_PAD, y + 16);
+      c2.shadowBlur = 0;
+
+      const totalCount = blocks.reduce(function(s, b){ return s + b.arr.length; }, 0);
+      const d = new Date();
+      const p2n = function(n){ return String(n).padStart(2, '0'); };
+      const stamp = d.getFullYear() + p2n(d.getMonth() + 1) + p2n(d.getDate())
+                  + '_' + p2n(d.getHours()) + p2n(d.getMinutes());
+
+      const sub = '共 ' + totalCount + ' 只 · '
+        + d.getFullYear() + '-' + p2n(d.getMonth() + 1) + '-' + p2n(d.getDate())
+        + ' ' + p2n(d.getHours()) + ':' + p2n(d.getMinutes())
+        + (q ? ' · 筛选：' + query.trim() : '');
+
+      c2.fillStyle = '#7f9cc9';
+      c2.font = '400 13px ' + PNG_FONT;
+      c2.fillText(sub, PNG_PAD, y + 42);
+
+      y += HEADER_H;
+
+      /* 逐组绘制 */
+      blocks.forEach(function(b){
+        /* —— 组标题 —— */
+        const hue = costHue(b.cost);
+        const badgeText = b.cost + ' 费';
+
+        c2.font = '700 12.5px ' + PNG_FONT;
+        const bw = Math.max(46, c2.measureText(badgeText).width + 20);
+        const bh = 22;
+
+        rr(c2, PNG_PAD, y, bw, bh, 8);
+        c2.fillStyle = 'hsla(' + hue + ',100%,50%,.18)';
+        c2.fill();
+        c2.lineWidth = 1;
+        c2.strokeStyle = 'hsla(' + hue + ',100%,60%,.60)';
+        c2.stroke();
+
+        c2.fillStyle = 'hsl(' + hue + ',100%,74%)';
+        c2.textAlign = 'center';
+        c2.fillText(badgeText, PNG_PAD + bw / 2, y + bh / 2 + 0.5);
+
+        const repeatCnt = b.arr.filter(isRepeatable).length;
+        c2.textAlign = 'left';
+        c2.fillStyle = repeatCnt ? '#5ff0d0' : '#6f8cb5';
+        c2.font = '400 12px ' + PNG_FONT;
+        c2.fillText(
+          b.arr.length + ' 只' + (repeatCnt ? '（可重复）' : ''),
+          PNG_PAD + bw + 10,
+          y + bh / 2 + 0.5
+        );
+
+        c2.strokeStyle = 'rgba(110,170,255,.13)';
+        c2.lineWidth = 1;
+        c2.beginPath();
+        c2.moveTo(PNG_PAD, y + 30.5);
+        c2.lineTo(PNG_PAD + gridW, y + 30.5);
+        c2.stroke();
+
+        /* —— 卡片 —— */
+        for(let r = 0; r < b.rows; r++){
+          for(let col = 0; col < COLS; col++){
+            const k = r * COLS + col;
+            if(k >= b.arr.length) break;
+            const p = b.arr[k];
+            drawPoolCard(
+              c2,
+              PNG_PAD + col * (PNG_CARD_W + PNG_GAP),
+              y + 30 + r * (PNG_CARD_H + PNG_GAP),
+              p,
+              iconMap.get(p.name)
+            );
+          }
+        }
+
+        y += 30 + b.rows * PNG_CARD_H + (b.rows - 1) * PNG_GAP + 22;
+      });
+
+      /* —— 按指定格式输出 —— */
+      const MIME_EXT = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png' };
+      mime = MIME_EXT[mime] ? mime : 'image/webp';
+      let ext = MIME_EXT[mime];
+      const quality = mime === 'image/png' ? undefined : 0.92;
+
+      const blob = await new Promise(function(resolve, reject){
+        try{
+          const cb = function(b){
+            if(b) resolve(b);
+            else reject(new Error('画布导出为空（可能是图片跨域污染或格式不受支持）'));
+          };
+          if(quality === undefined) cv.toBlob(cb, mime);
+          else cv.toBlob(cb, mime, quality);
+        }catch(e){
+          reject(e);
+        }
+      });
+
+      /* 若浏览器不支持所选格式，toBlob 可能回退为 PNG，这里同步真实扩展名 */
+      if(blob.type && MIME_EXT[blob.type] && blob.type !== mime){
+        ext = MIME_EXT[blob.type];
+      }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = '精灵池_' + stamp + '.' + ext;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
+
+      const fmtLabel = ext === 'webp' ? 'WebP' : (ext === 'jpg' ? 'JPEG' : 'PNG');
+      toast('已导出精灵池图片（' + fmtLabel + ' · ' + totalCount + ' 只 · ' + W + '×' + H + '）', true);
+    }catch(err){
+      console.error(err);
+      const msg = String((err && err.message) || err);
+      if(err && (err.name === 'SecurityError' || /taint|security|insecure/i.test(msg))){
+        toast('图片导出受浏览器安全限制，请改用「ZIP 压缩包」导出');
+      }else{
+        toast('导出失败：' + msg);
+      }
+    }finally{
+      btn.disabled = false;
+      btn.textContent = oldLabel;
+    }
+  }
+
+  /* ================= ★ 导出精灵池 ZIP（图标文件 + 清单） ================= */
+  function sanitizeFileName(name){
+    return String(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim() || '未命名';
+  }
+
+  /* ZIP 导出专用的精简路径（避免每个精灵请求上百个 404） */
+  function buildZipIconPaths(name){
+    const variants = [name];
+    if(/\s/.test(name)){
+      variants.push(name.replace(/\s+/g, '_'));
+    }
+    const dirs = ['icon', 'icons'];
+    const exts = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'PNG', 'JPG'];
+    const out = [];
+    dirs.forEach(function(d){
+      variants.forEach(function(v){
+        exts.forEach(function(e){
+          out.push(d + '/' + v + '.' + e);
+        });
+      });
+    });
+    return out;
+  }
+
+  /* 带超时的 fetch */
+  async function fetchWithTimeout(url, ms){
+    const ctrl = new AbortController();
+    const t = setTimeout(function(){ ctrl.abort(); }, ms);
+    try{
+      return await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+    }finally{
+      clearTimeout(t);
+    }
+  }
+
+  /* 尝试读取某个精灵的图标 Blob */
+  async function fetchIconBlob(name){
+    const paths = buildZipIconPaths(name);
+    for(let i = 0; i < paths.length; i++){
+      try{
+        const res = await fetchWithTimeout(paths[i], 1500);
+        if(res.ok){
+          const blob = await res.blob();
+          if(blob && blob.size > 0){
+            const ext = (paths[i].split('.').pop() || 'png').toLowerCase();
+            return { blob: blob, ext: ext, path: paths[i] };
+          }
+        }
+      }catch(e){
+        /* 路径不存在 / file:// 被阻止 / 超时 —— 继续尝试下一个 */
+      }
+    }
+    return null;
+  }
+
+  async function exportPoolZip(){
+    if(typeof JSZip === 'undefined'){
+      toast('压缩库尚未加载完成，请稍后重试');
+      return;
+    }
+    if(!pets.length){
+      toast('暂无精灵数据，无法导出');
+      return;
+    }
+
+    /* 收集当前筛选结果（与界面显示一致） */
+    const q = query.trim().toLowerCase();
+    const groups = new Map();
+    for(let i = 0; i < pets.length; i++){
+      const p = pets[i];
+      if(q && p.name.toLowerCase().indexOf(q) === -1) continue;
+      if(!groups.has(p.cost)) groups.set(p.cost, []);
+      groups.get(p.cost).push(p);
+    }
+    if(!groups.size){
+      toast('当前筛选结果为空，无法导出');
+      return;
+    }
+
+    const btn = document.getElementById('exportImgBtn');
+    const oldLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '正在打包…';
+
+    try{
+      const costs = Array.from(groups.keys()).sort(function(a, b){ return a - b; });
+      const all = [];
+      costs.forEach(function(c){
+        groups.get(c).forEach(function(p){ all.push({ p: p, cost: c }); });
+      });
+
+      const zip = new JSZip();
+      const CONCURRENCY = 6;
+      let cursor = 0;
+      let doneCount = 0;
+      let okCount = 0;
+      let failCount = 0;
+      const manifest = [];
+
+      async function worker(){
+        while(true){
+          const idx = cursor++;
+          if(idx >= all.length) return;
+
+          const item = all[idx];
+          const p = item.p;
+          const res = await fetchIconBlob(p.name);
+
+          let filePath = '';
+          if(res){
+            const dir = item.cost + '费';
+            const fname = sanitizeFileName(p.name) + '.' + res.ext;
+            filePath = dir + '/' + fname;
+            /* 同名（可重复精灵只出现一次于清单）直接写入；若同名不同扩展，加后缀 */
+            let finalPath = filePath;
+            let n = 2;
+            while(zip.file(finalPath)){
+              finalPath = dir + '/' + sanitizeFileName(p.name) + '_' + n + '.' + res.ext;
+              n++;
+            }
+            zip.file(finalPath, res.blob);
+            filePath = finalPath;
+            okCount++;
+          }else{
+            failCount++;
+          }
+
+          manifest.push({
+            cost: item.cost,
+            name: p.name,
+            file: filePath || '（未找到图标文件）'
+          });
+
+          doneCount++;
+          btn.textContent = '打包中 ' + doneCount + '/' + all.length + ' …';
+        }
+      }
+
+      const workers = [];
+      const workerCount = Math.min(CONCURRENCY, all.length);
+      for(let i = 0; i < workerCount; i++) workers.push(worker());
+      await Promise.all(workers);
+
+      /* 排序清单：费用升序 → 名字 */
+      manifest.sort(function(a, b){
+        if(a.cost !== b.cost) return a.cost - b.cost;
+        return a.name.localeCompare(b.name, 'zh');
+      });
+
+      /* 生成时间戳 */
+      const d = new Date();
+      const pad = function(n){ return String(n).padStart(2, '0'); };
+      const timeStr = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+                    + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      const stamp = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate())
+                  + '_' + pad(d.getHours()) + pad(d.getMinutes());
+
+      /* 清单 TXT */
+      const lines = [];
+      lines.push('精灵池清单');
+      lines.push('========================================');
+      lines.push('生成时间：' + timeStr);
+      lines.push('筛选条件：' + (q ? query.trim() : '（无）'));
+      lines.push('精灵总数：' + all.length + '（图标成功 ' + okCount + '，未找到 ' + failCount + '）');
+      lines.push('');
+      lines.push('说明：');
+      lines.push('  · 图标文件按「费用」分组存放在对应文件夹中（如 “0费/钢牙鲨.png”）。');
+      lines.push('  · 未找到的图标在下方清单中标注，可自行补充到 icon/ 文件夹。');
+      lines.push('');
+      lines.push('费用\t精灵名\t图标文件');
+      manifest.forEach(function(r){
+        lines.push(r.cost + '\t' + r.name + '\t' + r.file);
+      });
+      zip.file('精灵池清单.txt', lines.join('\n'));
+
+      /* 清单 CSV（带 BOM，方便 Excel 打开） */
+      const csvLines = ['费用,精灵名,图标文件'];
+      manifest.forEach(function(r){
+        const esc = function(s){ return '"' + String(s).replace(/"/g, '""') + '"'; };
+        csvLines.push([r.cost, r.name, r.file].map(esc).join(','));
+      });
+      zip.file('精灵池清单.csv', '\ufeff' + csvLines.join('\r\n'));
+
+      /* 打包（图片已压缩，用 STORE 最快） */
+      btn.textContent = '正在压缩…';
+      const blob = await zip.generateAsync({
+        type: 'blob',
+        compression: 'STORE'
+      });
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = '精灵池_' + stamp + '.zip';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
+
+      if(failCount === 0){
+        toast('已导出 ZIP：' + all.length + ' 只精灵（图标 ' + okCount + ' 个 + 清单）', true);
+      }else if(okCount === 0){
+        toast('已导出 ZIP：仅含清单（图标读取失败，请用本地服务器打开本页后重试）');
+      }else{
+        toast('已导出 ZIP：图标 ' + okCount + ' 个，未找到 ' + failCount + ' 个（见清单）', true);
+      }
+    }catch(err){
+      console.error(err);
+      toast('打包失败：' + ((err && err.message) || err));
+    }finally{
+      btn.disabled = false;
+      btn.textContent = oldLabel;
+    }
+  }
+
+  /* ================= 单人费用上限 ================= */
+  function applyMaxCost(){
+    let v = parseFloat(maxCostInput.value);
+    if(!isFinite(v) || v < 1) v = 1;
+    if(v > MAX_COST_LIMIT) v = MAX_COST_LIMIT;
+    v = Math.round(v);
+    maxCost = v;
+    maxCostInput.value = v;
+    refresh();
+  }
+
+  maxCostInput.addEventListener('input', function(){
+    clearTimeout(maxCostTimer);
+    maxCostTimer = setTimeout(function(){
+      const v = parseFloat(maxCostInput.value);
+      if(!isFinite(v) || v < 1) return;
+      maxCost = Math.min(MAX_COST_LIMIT, Math.round(v));
+      refresh();
+    }, 220);
+  });
+
+  maxCostInput.addEventListener('blur', function(){
+    clearTimeout(maxCostTimer);
+    applyMaxCost();
+  });
+
+  maxCostInput.addEventListener('keydown', function(e){
+    if(e.key === 'Enter'){
+      clearTimeout(maxCostTimer);
+      applyMaxCost();
+      maxCostInput.blur();
+    }
+  });
+
+  /* ================= ★ 骰子 ================= */
+  const diceBtn   = document.getElementById('diceBtn');
+  const diceFace  = document.getElementById('diceFace');
+  let diceRolling = false;
+
+  function rollDice(){
+    if(diceRolling) return;
+    diceRolling = true;
+    diceBtn.classList.add('rolling');
+
+    let elapsed = 0;
+    const timer = setInterval(function(){
+      diceFace.textContent = String(Math.floor(Math.random() * 6) + 1);
+      elapsed += 70;
+      if(elapsed >= 700){
+        clearInterval(timer);
+        const result = Math.floor(Math.random() * 6) + 1;
+        diceFace.textContent = String(result);
+        diceBtn.classList.remove('rolling');
+        diceRolling = false;
+        toast('🎲 掷出 ' + result + ' 点', true);
+      }
+    }, 70);
+  }
+
+  diceBtn.addEventListener('click', rollDice);
+
+  /* ================= 数据装载 ================= */
+  function commitList(list, statusMsg, statusType){
+    /* ★ 确保 0 费可重复精灵「暗雷」始终存在 */
+    let hasAnlei = false;
+    for(let i = 0; i < list.length; i++){
+      if(list[i].name === '暗雷'){ hasAnlei = true; break; }
+    }
+    if(!hasAnlei) list.push({ name: '暗雷', cost: 0 });
+
+    pets = list;
+    selected = [];
+    iconFailCount = 0;
+    if(mode === 'duo') duo = newDuo();
+    refresh();
+    setStatus(statusMsg, statusType);
+  }
+
+  function applyDefaultData(){
+    const list = [];
+    const seen = Object.create(null);
+
+    DEFAULT_TEXT.trim().split('\n').forEach(function(line){
+      const parts = line.trim().split(/\s+/);
+      if(parts.length < 2) return;
+      const name = parts[0];
+      const cost = parseInt(parts[1], 10);
+      if(!name || !(cost >= 0)) return;
+      if(seen[name]) return;
+      seen[name] = true;
+      list.push({ name: name, cost: cost });
+    });
+
+    commitList(
+      list,
+      '未能自动读取 ' + XLSX_FILE + '，已载入内置默认精灵数据（' + list.length + ' 只）。图标将从 icon/ 文件夹按精灵名自动匹配。',
+      'ok'
+    );
+  }
+
+  function toNum(c){
+    if(typeof c === 'number') return isFinite(c) ? c : null;
+    if(typeof c === 'string'){
+      const s = c.trim();
+      if(/^-?\d+(\.\d+)?$/.test(s)) return parseFloat(s);
+    }
+    return null;
+  }
+
+  function applyWorkbook(wb){
+    const list = [];
+    const seen = Object.create(null);
+
+    wb.SheetNames.forEach(function(sn){
+      const ws = wb.Sheets[sn];
+      if(!ws) return;
+      let rows;
+      try{
+        rows = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: null });
+      }catch(e){ return; }
+
+      rows.forEach(function(row){
+        if(!row || !row.length) return;
+        const cells = row.filter(function(c){
+          return c !== null && c !== undefined && String(c).trim() !== '';
+        });
+        if(cells.length < 2) return;
+
+        let name = null;
+        for(let i = 0; i < cells.length; i++){
+          const c = cells[i];
+          if(typeof c === 'string' && c.trim() && toNum(c) === null){
+            name = c.trim();
+            break;
+          }
+        }
+        let cost = null;
+        for(let i = 0; i < cells.length; i++){
+          const n = toNum(cells[i]);
+          if(n !== null && n >= 0){
+            cost = Math.round(n);
+            break;
+          }
+        }
+        if(!name || cost === null) return;
+        if(seen[name]) return;
+        seen[name] = true;
+        list.push({ name: name, cost: cost });
+      });
+    });
+
+    if(!list.length){
+      setStatus('表格中未解析到有效数据，已载入内置默认数据。', 'err');
+      if(!pets.length) applyDefaultData();
+      return;
+    }
+    commitList(list, '已载入 ' + list.length + ' 只精灵（来自表格）。图标将从 icon/ 文件夹按精灵名自动匹配。', 'ok');
+  }
+
+  function readFromFile(file){
+    if(typeof XLSX === 'undefined'){
+      toast('解析库尚未就绪，请稍后重试');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = function(e){
+      try{
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+        applyWorkbook(wb);
+      }catch(err){
+        console.error(err);
+        setStatus('文件解析失败：' + err.message, 'err');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function waitForXLSX(timeout){
+    timeout = timeout || 9000;
+    return new Promise(function(resolve, reject){
+      const t0 = Date.now();
+      (function poll(){
+        if(typeof XLSX !== 'undefined') return resolve();
+        if(Date.now() - t0 > timeout) return reject(new Error('解析库加载超时'));
+        setTimeout(poll, 120);
+      })();
+    });
+  }
+
+  /* ================= 初始化 ================= */
+  async function init(){
+    document.getElementById('search').addEventListener('input', function(e){
+      query = e.target.value;
+      renderPool();
+    });
+
+    document.getElementById('clear').addEventListener('click', function(){
+      if(!selected.length) return;
+      selected = [];
+      refresh();
+    });
+
+    document.getElementById('random').addEventListener('click', generateRandomTeam);
+
+    document.getElementById('fileInput').addEventListener('change', function(e){
+      const f = e.target.files && e.target.files[0];
+      if(f) readFromFile(f);
+      e.target.value = '';
+    });
+
+    /* ★ 导出 xlsx */
+    document.getElementById('exportBtn').addEventListener('click', exportXlsx);
+
+    /* ★ 导出精灵池：根据下拉框格式分发到 ZIP 或图片导出 */
+    const fmtSelect = document.getElementById('exportFormat');
+    const expImgBtn = document.getElementById('exportImgBtn');
+
+    function syncExportBtnLabel(){
+      expImgBtn.textContent = fmtSelect.value === 'zip'
+        ? '导出精灵池 ZIP'
+        : '导出精灵池图片';
+    }
+    fmtSelect.addEventListener('change', syncExportBtnLabel);
+    syncExportBtnLabel();
+
+    expImgBtn.addEventListener('click', function(){
+      const fmt = fmtSelect.value;
+      if(fmt === 'zip'){
+        exportPoolZip();
+      }else{
+        exportPoolImage(fmt);
+      }
+    });
+
+    /* ★ 模式切换 */
+    modeBtn.addEventListener('click', function(){
+      setMode(mode === 'duo' ? 'solo' : 'duo');
+    });
+
+    /* ★ 玩家名称：点击面板标题即可改名 */
+    [[0, p1Panel], [1, p2Panel]].forEach(function(item){
+      const pi = item[0];
+      const h2 = item[1].querySelector('.panel-head h2');
+      if(!h2) return;
+      h2.classList.add('editable');
+      h2.title = '点击修改玩家名称';
+      h2.addEventListener('click', function(){ openNameEditor(pi); });
+    });
+
+    maxCostInput.value = maxCost;
+    maxCostDisplay.textContent = maxCost;
+
+    renderTeam();
+
+    try{
+      await waitForXLSX();
+    }catch(err){
+      setStatus('解析库加载失败，已载入内置默认精灵数据。', 'err');
+      applyDefaultData();
+      return;
+    }
+
+    try{
+      const res = await fetch(XLSX_FILE, { cache: 'no-store' });
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      const buf = await res.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      applyWorkbook(wb);
+    }catch(err){
+      console.warn('自动读取失败：', err);
+      applyDefaultData();
+    }
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', init);
+  }else{
+    init();
+  }
+
+})();
+</script>
+</body>
+</html>
